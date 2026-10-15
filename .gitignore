@@ -1,0 +1,24 @@
+# Per-machine state: screen coordinates for one window position, characters
+# taught on this screen, corrections made by hand. Meaningless anywhere else.
+config.json
+config.json.bak
+
+# Shortcuts store an absolute path to one machine's Python.
+# scripts/make-shortcuts.ps1 regenerates them.
+*.lnk
+
+# Diagnostic output
+debug-capture.png
+debug-segmented.png
+debug-report.txt
+last-segmented.png
+crash.txt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/

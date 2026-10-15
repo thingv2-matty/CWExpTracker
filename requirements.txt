@@ -1,0 +1,10 @@
+# Screen capture. The only way the tracker touches the game.
+mss>=9.0.1
+# Arrays, for the pixel work.
+numpy>=1.26
+# Image loading and saving, and getting a capture into tkinter.
+pillow>=10.0
+
+# tkinter is used for the whole interface but is not listed here: it ships
+# with CPython on Windows and macOS, and is a system package on Linux
+# (python3-tk on Debian and Ubuntu).
