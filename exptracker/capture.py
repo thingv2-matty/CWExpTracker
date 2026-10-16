@@ -4,6 +4,7 @@ Getting pixels off the screen, and letting the user say which pixels.
 Nothing here knows what a character is. It hands back arrays.
 """
 
+import os
 import time
 import tkinter as tk
 
@@ -13,6 +14,22 @@ import numpy as np
 # Drag rectangle colour. The only place in the project that uses the OffGrid
 # green, because this window is not part of the tracker's own look.
 PICKER_OUTLINE = "#A8C95A"
+
+# Set EXPTRACKER_TRACE=1 to have the region picker write each step to
+# picker-trace.txt. For working out where it stops when it stops.
+TRACE = bool(os.environ.get("EXPTRACKER_TRACE"))
+
+
+def _trace(message):
+    if not TRACE:
+        return
+    from . import paths
+    try:
+        with open(paths.ROOT / "picker-trace.txt", "a", encoding="utf-8") as fh:
+            fh.write("%.3f  %s\n" % (time.time() % 1000, message))
+            fh.flush()
+    except OSError:
+        pass
 
 MIN_REGION_WIDTH = 20
 MIN_REGION_HEIGHT = 8
@@ -56,22 +73,32 @@ def pick_region(countdown=3, parent=None):
     if countdown:
         print("  capturing the screen now.      ")
 
+    _trace("pick_region entered, parent=%r" % (parent is not None,))
     hidden = parent is not None and parent.winfo_viewable()
+    _trace("viewable=%s" % hidden)
     if hidden:
         parent.withdraw()
+        _trace("withdrawn")
         parent.update()
+        _trace("update after withdraw")
 
     try:
+        _trace("opening mss")
         with mss.mss() as sct:
             virtual = sct.monitors[0]
             shot = sct.grab(virtual)
             frozen = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+            _trace("screenshot %dx%d" % frozen.size)
     finally:
         if hidden:
             parent.deiconify()
+            _trace("deiconified")
             parent.update()
+            _trace("update after deiconify")
 
+    _trace("creating window")
     window = tk.Toplevel(parent) if parent is not None else tk.Tk()
+    _trace("window created")
     window.title("Drag a box around the EXP readout")
     window.attributes("-topmost", True)
     window.overrideredirect(True)
@@ -80,7 +107,9 @@ def pick_region(countdown=3, parent=None):
 
     canvas = tk.Canvas(window, cursor="crosshair", highlightthickness=0)
     canvas.pack(fill="both", expand=True)
+    _trace("building PhotoImage")
     photo = ImageTk.PhotoImage(frozen)
+    _trace("PhotoImage done")
     canvas.create_image(0, 0, image=photo, anchor="nw")
     canvas.create_text(virtual["width"] // 2, 40,
                        text="Drag a box around the EXP readout.  Escape to cancel.",
@@ -121,7 +150,9 @@ def pick_region(countdown=3, parent=None):
         # update() rather than wait_visibility(): a fullscreen overrideredirect
         # window never reports itself visible on Windows, so waiting for that
         # blocks forever with the picker on screen and no way to dismiss it.
+        _trace("update()")
         window.update()
+        _trace("update() done")
         try:
             window.grab_set()
         except tk.TclError:
@@ -131,7 +162,23 @@ def pick_region(countdown=3, parent=None):
         # An overrideredirect window gets no focus from the window manager, and
         # without focus the Escape binding never fires.
         window.focus_force()
-        parent.wait_window(window)
+        _trace("wait_window")
+        try:
+            parent.wait_window(window)
+        finally:
+            # Destroying the window is supposed to drop the grab with it. When
+            # that does not happen the application keeps running and keeps
+            # pumping messages, but every click goes to a window that no longer
+            # exists, so it looks frozen while being perfectly alive. Release
+            # it by hand from whatever still exists.
+            _trace("releasing grab")
+            for widget in (window, parent):
+                try:
+                    widget.grab_release()
+                except tk.TclError:
+                    pass
+            _trace("grab released")
+        _trace("wait_window returned")
 
     if "x1" not in box:
         return None
