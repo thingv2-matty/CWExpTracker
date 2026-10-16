@@ -22,3 +22,6 @@ venv/
 *.egg-info/
 build/
 dist/
+
+# Artwork extracted from the game or supplied by the user. Never committed.
+assets/

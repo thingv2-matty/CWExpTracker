@@ -21,6 +21,14 @@ LABELS = DATA / "labels.json"
 # Deliberately not in data/, and deliberately not committed.
 CONFIG = ROOT / "config.json"
 
+# Artwork belonging to somebody else: damage number sprites taken out of the
+# player's own game install by tools/extract_sprites.py, and whatever
+# backgrounds they care to drop in. Never committed, and the tracker works
+# without any of it.
+ASSETS = ROOT / "assets"
+NUMBERS = ASSETS / "numbers"
+BACKGROUNDS = ASSETS / "backgrounds"
+
 # Scratch output from the diagnostic paths.
 DEBUG_CAPTURE = ROOT / "debug-capture.png"
 DEBUG_SEGMENTED = ROOT / "debug-segmented.png"

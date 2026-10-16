@@ -241,6 +241,65 @@ Two more tools:
 
 ---
 
+## The Maple skin
+
+The tracker can wear the game's own look: a town background behind the readout
+and the experience-per-hour figure drawn in the damage font. It ships with
+neither, and works fine without both.
+
+The sprites belong to Nexon, so they are not distributed here. They are taken
+out of the copy already on your machine:
+
+```
+python tools/extract_sprites.py
+```
+
+Run it once. It finds your install, pulls every damage number set out of
+`Effect.wz`, and writes them to `assets/numbers/`, which git ignores. Pass
+`--game` if it cannot find the install, and `--list` to see what is in there
+without extracting anything.
+
+Backgrounds are whatever you put in `assets/backgrounds/`. Screenshot a town
+you like, drop the file in, done. Anything roughly portrait works; it is
+cropped to fill.
+
+Both are then chosen from the **···** menu, under *Background* and *Numbers*,
+and remembered between runs. With `assets/` empty neither submenu appears and
+you get the plain dark theme.
+
+### How the damage font is laid out
+
+Three things, and only one of them is the stagger:
+
+1. **The leading digit comes off a larger sheet than the rest.** `NoRed0` and
+   `NoRed1` are a pair, as are `NoCri0`/`NoCri1`, `NoCri2`/`NoCri3` and
+   `NoBlue0`/`NoBlue1`. The large sheet runs 1.16 to 1.23 times the height of
+   the small one. This is what produces the pronounced step at the start of a
+   number, and it is easy to mistake for dramatic staggering.
+2. **Digits share a baseline, not a top.** Measured on a real capture of `365`,
+   the bottoms sit within 2px while the tops differ by 9.
+3. **Each digit is then nudged a pixel or two, alternating by position**,
+   starting with the first digit high. Measured at 2px peak to peak across
+   eight digits, and independent of which digit sits where.
+
+There is no thousands separator and the digits overlap slightly, so the
+tracker drops the comma when drawing in this font.
+
+### Extracting other things
+
+`tools/wz/` is a small reader for Wizet's `.wz` archives: directory walking,
+the version-hash brute force, string decryption and canvas decoding. It exists
+because the alternative was downloading an unsigned wz editor from a forum.
+
+Two things to know if you point it somewhere else. Images are often 1×1 stubs
+carrying an `_outlink` to a parallel `_Canvas` archive where the real pixels
+live, so a naive extraction hands back single-pixel images. And the zlib
+streams stop at the last byte of pixel data with no adler trailer, so a
+one-shot `zlib.decompress` reports a truncated stream and throws away a
+complete image; decompress incrementally instead.
+
+---
+
 ## Tests
 
 ```

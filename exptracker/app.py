@@ -43,11 +43,29 @@ class App:
         self._dirty = False
         self._saved_at = time.time()
 
+        # Artwork is optional and remembered between runs. Restoring it after
+        # the panel exists means a missing or deleted asset just falls back to
+        # the plain theme rather than stopping startup.
+        self._restoring = True
+        if config.background:
+            self.panel.use_background(config.background)
+        if config.digits:
+            self.panel.use_digits(config.digits)
+        self._restoring = False
+
     # ----------------------------------------------------------- commands --
     # These are what the panel calls. Names match the buttons.
 
     def toggle(self):
         return self.session.toggle()
+
+    def remember_appearance(self, background, digits):
+        """Keep the chosen artwork for next time."""
+        if self._restoring:
+            return
+        self.config.background = background
+        self.config.digits = digits
+        self.config.save()
 
     def reset(self):
         self.session = Session()

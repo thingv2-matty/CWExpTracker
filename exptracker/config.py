@@ -53,6 +53,22 @@ class Config:
         self._data["templates"] = value
 
     @property
+    def background(self):
+        return self._data.get("background")
+
+    @background.setter
+    def background(self, value):
+        self._data["background"] = value
+
+    @property
+    def digits(self):
+        return self._data.get("digits")
+
+    @digits.setter
+    def digits(self, value):
+        self._data["digits"] = value
+
+    @property
     def overrides(self):
         return self._data.get("overrides") or {}
 
