@@ -12,7 +12,7 @@ import time
 import tkinter as tk
 
 from . import paths
-from .capture import PICKER_TIMEOUT, fullscreen_app, grab, pick_region
+from .capture import PICKER_TIMEOUT, grab, pick_region
 from .config import Config
 from .models import CharacterModels
 from .reader import Reader
@@ -117,13 +117,9 @@ class App:
         for the whole picker, which never then became viewable, so the tracker
         hung with no window and no way to dismiss it.
         """
-        blocking = fullscreen_app()
-        if blocking and not self._confirm_over_fullscreen(blocking):
-            return
-
         resume = self._suspend()
         try:
-            picked = pick_region(countdown=0, parent=self.root)
+            picked = self._run_picker()
         finally:
             self.root.deiconify()
             self.root.attributes("-topmost", True)
@@ -137,25 +133,46 @@ class App:
             self.session.forget_reading()
         self._resume(resume)
 
-    @staticmethod
-    def _confirm_over_fullscreen(title):
-        """Warn that the picker will open behind a fullscreen window.
+    def _run_picker(self):
+        """Pick a region in a process of its own, and read back what was picked.
 
-        It still offers to go ahead, because the detection cannot be certain
-        and being refused outright by a guess is worse than being warned. The
-        picker closes itself after %d seconds either way, so the worst case is
-        a wait rather than a tracker that has to be killed.
-        """ % PICKER_TIMEOUT
-        from tkinter import messagebox
+        A picker opened as a child of this window loses the z-order fight with
+        a fullscreen game and ends up behind it, unreachable. Launched as the
+        only window of a new process it comes up in front, which is how this
+        worked before there was a button for it.
 
-        return messagebox.askokcancel(
-            "Map zone",
-            "%s is running fullscreen.\n\n"
-            "The region picker opens on top of everything, but a fullscreen "
-            "window outranks it, so the part you need to drag on will be "
-            "hidden behind it. Switch that window to windowed mode first.\n\n"
-            "Go ahead anyway? It closes itself after %d seconds if nothing "
-            "is selected." % (title, PICKER_TIMEOUT))
+        The tracker hides itself first so it is not in the screenshot, and the
+        picker is given a hard time limit so a wedged one cannot strand us.
+        """
+        import json
+        import subprocess
+
+        self.root.withdraw()
+        self.root.update()
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "exptracker.pickregion"],
+                cwd=str(paths.ROOT), capture_output=True, text=True,
+                timeout=PICKER_TIMEOUT + 30,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except subprocess.TimeoutExpired:
+            self.panel.problem = "the region picker timed out"
+            return None
+        except OSError as exc:
+            self.panel.problem = "could not start the region picker: %s" % exc
+            return None
+        finally:
+            self.root.deiconify()
+            self.root.update()
+
+        if result.returncode != 0 or not result.stdout.strip():
+            return None
+        try:
+            return json.loads(result.stdout.strip())
+        except ValueError:
+            self.panel.problem = "the region picker returned nothing usable"
+            return None
 
     def _suspend(self):
         was_running = self.session.running
