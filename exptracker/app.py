@@ -12,7 +12,7 @@ import time
 import tkinter as tk
 
 from . import paths
-from .capture import grab, pick_region
+from .capture import PICKER_TIMEOUT, fullscreen_app, grab, pick_region
 from .config import Config
 from .models import CharacterModels
 from .reader import Reader
@@ -117,6 +117,10 @@ class App:
         for the whole picker, which never then became viewable, so the tracker
         hung with no window and no way to dismiss it.
         """
+        blocking = fullscreen_app()
+        if blocking and not self._confirm_over_fullscreen(blocking):
+            return
+
         resume = self._suspend()
         try:
             picked = pick_region(countdown=0, parent=self.root)
@@ -132,6 +136,26 @@ class App:
             # watching does not mean you stopped grinding.
             self.session.forget_reading()
         self._resume(resume)
+
+    @staticmethod
+    def _confirm_over_fullscreen(title):
+        """Warn that the picker will open behind a fullscreen window.
+
+        It still offers to go ahead, because the detection cannot be certain
+        and being refused outright by a guess is worse than being warned. The
+        picker closes itself after %d seconds either way, so the worst case is
+        a wait rather than a tracker that has to be killed.
+        """ % PICKER_TIMEOUT
+        from tkinter import messagebox
+
+        return messagebox.askokcancel(
+            "Map zone",
+            "%s is running fullscreen.\n\n"
+            "The region picker opens on top of everything, but a fullscreen "
+            "window outranks it, so the part you need to drag on will be "
+            "hidden behind it. Switch that window to windowed mode first.\n\n"
+            "Go ahead anyway? It closes itself after %d seconds if nothing "
+            "is selected." % (title, PICKER_TIMEOUT))
 
     def _suspend(self):
         was_running = self.session.running

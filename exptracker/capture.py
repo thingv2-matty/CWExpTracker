@@ -11,6 +11,21 @@ import tkinter as tk
 import mss
 import numpy as np
 
+
+# MONITORINFO, for working out whether a window covers its whole screen.
+# Defined only on Windows; everywhere else the fullscreen check returns early.
+try:
+    import ctypes as _ctypes
+    from ctypes import wintypes as _wintypes
+
+    class _MonitorInfo(_ctypes.Structure):
+        _fields_ = [("cbSize", _ctypes.c_ulong),
+                    ("rcMonitor", _wintypes.RECT),
+                    ("rcWork", _wintypes.RECT),
+                    ("dwFlags", _ctypes.c_ulong)]
+except (ImportError, ValueError, AttributeError):   # pragma: no cover
+    _MonitorInfo = None
+
 # Drag rectangle colour. The only place in the project that uses the OffGrid
 # green, because this window is not part of the tracker's own look.
 PICKER_OUTLINE = "#A8C95A"
@@ -34,6 +49,9 @@ def _trace(message):
 MIN_REGION_WIDTH = 20
 MIN_REGION_HEIGHT = 8
 
+# How long the picker waits for a selection before closing itself.
+PICKER_TIMEOUT = 45
+
 
 def grab(region=None):
     """Capture the whole virtual desktop, or one region of it, as RGB."""
@@ -47,6 +65,86 @@ def grab(region=None):
 def luminance(rgb):
     """Perceived brightness, which is what decides whether a pixel is ink."""
     return 0.299 * rgb[:, :, 0] + 0.587 * rgb[:, :, 1] + 0.114 * rgb[:, :, 2]
+
+
+IGNORED_WINDOWS = {"Program Manager", "Windows Input Experience",
+                   "Windows Shell Experience Host", "Drag a box around the EXP readout"}
+
+
+def fullscreen_app():
+    """The title of a borderless or exclusive fullscreen window, if there is one.
+
+    This matters because the region picker cannot be used over one. The picker
+    is a topmost window covering the whole desktop, but a fullscreen game
+    outranks it on that game's monitor, so the part of the picker you need is
+    hidden behind the game: it cannot be seen, clicked or dismissed, and it is
+    holding an input grab. The tracker then looks frozen and cannot be
+    recovered without killing it.
+
+    Every visible window is checked rather than just the foreground one,
+    because by the time MAP ZONE is clicked the tracker has focus and the game
+    does not. Windows only; elsewhere this finds nothing and the picker runs as
+    before.
+    """
+    if _MonitorInfo is None or not hasattr(_ctypes, "windll"):
+        return None
+
+    ctypes = _ctypes
+    user32 = ctypes.windll.user32
+    found = []
+
+    def visit(window, _lparam):
+        try:
+            if not user32.IsWindowVisible(window):
+                return True
+            rect = _wintypes.RECT()
+            if not user32.GetWindowRect(window, ctypes.byref(rect)):
+                return True
+            if rect.right - rect.left < 640 or rect.bottom - rect.top < 400:
+                return True
+            # Overlays and click-through windows cover the screen without
+            # getting in the way: Discord's overlay and Windows' own helpers
+            # are both fullscreen, layered and harmless.
+            ex_style = user32.GetWindowLongW(window, -20)
+            if ex_style & (0x20 | 0x80):            # TRANSPARENT, TOOLWINDOW
+                return True
+            # A borderless fullscreen game has no caption and no resize frame.
+            # A merely maximised ordinary window does, and the picker sits over
+            # that quite happily.
+            style = user32.GetWindowLongW(window, -16)
+            if style & (0x00C00000 | 0x00040000):   # CAPTION, THICKFRAME
+                return True
+
+            info = _MonitorInfo()
+            info.cbSize = ctypes.sizeof(_MonitorInfo)
+            monitor = user32.MonitorFromWindow(window, 2)        # NEAREST
+            if not user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+                return True
+            if not (rect.left <= info.rcMonitor.left
+                    and rect.top <= info.rcMonitor.top
+                    and rect.right >= info.rcMonitor.right
+                    and rect.bottom >= info.rcMonitor.bottom):
+                return True
+
+            length = user32.GetWindowTextLengthW(window)
+            if not length:
+                return True
+            buffer = ctypes.create_unicode_buffer(length + 1)
+            user32.GetWindowTextW(window, buffer, length + 1)
+            title = buffer.value.strip()
+            if title and title not in IGNORED_WINDOWS:
+                found.append(title)
+        except Exception:
+            pass
+        return True
+
+    try:
+        proto = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p,
+                                   ctypes.c_void_p)
+        user32.EnumWindows(proto(visit), 0)
+    except Exception:
+        return None
+    return found[0] if found else None
 
 
 def pick_region(countdown=3, parent=None):
@@ -111,9 +209,33 @@ def pick_region(countdown=3, parent=None):
     photo = ImageTk.PhotoImage(frozen)
     _trace("PhotoImage done")
     canvas.create_image(0, 0, image=photo, anchor="nw")
-    canvas.create_text(virtual["width"] // 2, 40,
-                       text="Drag a box around the EXP readout.  Escape to cancel.",
-                       fill="#ffffff", font=("Segoe UI", 20, "bold"))
+    headline = canvas.create_text(
+        virtual["width"] // 2, 40,
+        text="Drag a box around the EXP readout.  Escape to cancel.",
+        fill="#ffffff", font=("Segoe UI", 20, "bold"))
+
+    # A picker hidden behind a fullscreen game cannot be seen, clicked or
+    # dismissed, and it holds an input grab while it waits, so the tracker
+    # looks frozen and has to be killed. Nothing is worth that: it gives up on
+    # its own.
+    remaining = [PICKER_TIMEOUT]
+
+    def countdown():
+        if "x1" in box or not remaining:
+            return
+        remaining[0] -= 1
+        if remaining[0] <= 0:
+            canvas.itemconfigure(headline, text="no selection made, closing")
+            window.after(400, close)
+            return
+        if remaining[0] <= 10:
+            canvas.itemconfigure(
+                headline,
+                text="Drag a box around the EXP readout.  "
+                     "Closing in %d..." % remaining[0])
+        window.after(1000, countdown)
+
+    window.after(1000, countdown)
 
     box = {}
     outline = None
