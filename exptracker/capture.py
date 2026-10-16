@@ -40,6 +40,13 @@ def pick_region(countdown=3, parent=None):
     Takes a parent when the tracker is already running, because a second
     tk.Tk() alongside an existing one is asking for trouble. With a parent it is
     a Toplevel that gets waited on; without one it owns the loop.
+
+    The parent is hidden for the screenshot and brought straight back, so the
+    frozen image does not have the tracker's own window sitting in it. It has
+    to come back BEFORE the picker is built: a Toplevel whose parent is
+    withdrawn never becomes viewable, so wait_visibility blocks forever and
+    nothing can close it either, since an unfocused window never sees the
+    Escape key. That hung the tracker with no window and no way back.
     """
     from PIL import Image, ImageTk
 
@@ -49,10 +56,20 @@ def pick_region(countdown=3, parent=None):
     if countdown:
         print("  capturing the screen now.      ")
 
-    with mss.mss() as sct:
-        virtual = sct.monitors[0]
-        shot = sct.grab(virtual)
-        frozen = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+    hidden = parent is not None and parent.winfo_viewable()
+    if hidden:
+        parent.withdraw()
+        parent.update()
+
+    try:
+        with mss.mss() as sct:
+            virtual = sct.monitors[0]
+            shot = sct.grab(virtual)
+            frozen = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
+    finally:
+        if hidden:
+            parent.deiconify()
+            parent.update()
 
     window = tk.Toplevel(parent) if parent is not None else tk.Tk()
     window.title("Drag a box around the EXP readout")
@@ -101,7 +118,19 @@ def pick_region(countdown=3, parent=None):
         window.destroy()
     else:
         window.transient(parent)
-        window.grab_set()
+        # update() rather than wait_visibility(): a fullscreen overrideredirect
+        # window never reports itself visible on Windows, so waiting for that
+        # blocks forever with the picker on screen and no way to dismiss it.
+        window.update()
+        try:
+            window.grab_set()
+        except tk.TclError:
+            # Not fatal. The window covers the whole desktop and sits on top,
+            # so every click lands on it with or without a grab.
+            pass
+        # An overrideredirect window gets no focus from the window manager, and
+        # without focus the Escape binding never fires.
+        window.focus_force()
         parent.wait_window(window)
 
     if "x1" not in box:

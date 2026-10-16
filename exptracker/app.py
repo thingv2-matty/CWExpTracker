@@ -39,6 +39,10 @@ class App:
         self.session = Session()
 
         self.root = tk.Tk()
+        # Tkinter catches anything a button callback raises and prints it to
+        # stderr, which goes nowhere when started from the shortcut. That is
+        # how MAP ZONE could fail with no error, no crash file and no clue.
+        self.root.report_callback_exception = self._callback_failed
         self.panel = Panel(self.root, self.session, self)
         self._dirty = False
         self._saved_at = time.time()
@@ -58,6 +62,24 @@ class App:
 
     def toggle(self):
         return self.session.toggle()
+
+    def _callback_failed(self, kind, value, tb):
+        """Surface an error from a button rather than losing it to stderr."""
+        import traceback
+
+        detail = "".join(traceback.format_exception(kind, value, tb))
+        try:
+            paths.CRASH.write_text(detail, encoding="utf-8")
+        except OSError:
+            pass
+        print(detail, file=sys.stderr)
+        self.panel.problem = "%s: %s  (see crash.txt)" % (kind.__name__, value)
+        # Never leave the window hidden because something failed mid-way.
+        try:
+            self.root.deiconify()
+            self.panel.refresh()
+        except tk.TclError:
+            pass
 
     def remember_appearance(self, background, digits):
         """Keep the chosen artwork for next time."""
@@ -88,9 +110,14 @@ class App:
         self._resume(resume)
 
     def remap(self):
-        """Draw the watched zone again, without losing the session."""
+        """Draw the watched zone again, without losing the session.
+
+        The picker hides the window for its screenshot and brings it straight
+        back. Hiding it from here as well used to leave the parent withdrawn
+        for the whole picker, which never then became viewable, so the tracker
+        hung with no window and no way to dismiss it.
+        """
         resume = self._suspend()
-        self.root.withdraw()            # get the panel out of the way of the drag
         try:
             picked = pick_region(countdown=0, parent=self.root)
         finally:
