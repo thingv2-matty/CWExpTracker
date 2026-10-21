@@ -132,6 +132,10 @@ class Session:
         self.rejected = 0
         self.recoveries = 0
         self.last_good = None
+        # Distinct from last_good: a reading can be believed without any
+        # experience having been earned, which is exactly what sitting in town
+        # looks like.
+        self.last_gain = None
 
     # ------------------------------------------------------------- levels --
 
@@ -273,7 +277,9 @@ class Session:
             gained = (value - self.value) / requirement * 100.0
             if gained > MAX_GAIN_PCT_PER_SAMPLE:
                 return self._reject()
-            self.gained += value - self.value
+            if value > self.value:
+                self.gained += value - self.value
+                self.last_gain = time.time()
         return self._accept(value)
 
     def _next_level(self, value, requirement, level):
@@ -291,6 +297,7 @@ class Session:
         if carried / requirement * 100.0 > MAX_GAIN_PCT_PER_SAMPLE:
             return self._reject()
         self.gained += carried
+        self.last_gain = time.time()
         self.levels += 1
         self.adopt_level(level)
         return self._accept(value)
@@ -322,10 +329,13 @@ class Session:
             # the implied requirement lands only 0.029% out.
             if abs(estimate - requirement) / requirement > 0.0002:
                 return self._reject()
-            self.gained += max(0, value - self.value)
+            if value > self.value:
+                self.gained += value - self.value
+                self.last_gain = time.time()
             self.requirement = requirement * 0.9 + estimate * 0.1
         else:
             self.gained += max(0, requirement - self.value) + value
+            self.last_gain = time.time()
             self.levels += 1
             self.requirement = estimate
         return self._accept(value)
@@ -378,6 +388,26 @@ class Session:
         if self.value is None or not self.requirement:
             return None
         return self.value / self.requirement * 100.0
+
+    @property
+    def percent_per_minute(self):
+        """Session average, as a share of the CURRENT level, per minute.
+
+        This is how a grinding spot gets judged: ten minutes in one place, and
+        anything under about 0.5%/min is not worth staying for. Expressed
+        against the current level's requirement rather than raw experience,
+        because the same experience per hour is worth steadily less as the
+        levels get longer.
+        """
+        if not self.requirement:
+            return None
+        return self.per_hour / self.requirement * 100.0 / 60.0
+
+    def idle_for(self):
+        """Seconds since experience last went up, or None if it never has."""
+        if self.last_gain is None:
+            return None
+        return time.time() - self.last_gain
 
     @property
     def to_level(self):

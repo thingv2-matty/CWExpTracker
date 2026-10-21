@@ -28,6 +28,11 @@ PERIOD = 0.5
 # tick: the config is tens of kilobytes and a tick is half a second.
 SAVE_EVERY_SECONDS = 20
 
+# How long experience can sit still before the clock stops on its own. Long
+# enough that a slow spawn cycle does not trip it, short enough that wandering
+# off to talk to someone does not quietly wreck the session average.
+IDLE_PAUSE_SECONDS = 60
+
 
 class App:
     """The running tracker."""
@@ -43,9 +48,14 @@ class App:
         # stderr, which goes nowhere when started from the shortcut. That is
         # how MAP ZONE could fail with no error, no crash file and no clue.
         self.root.report_callback_exception = self._callback_failed
-        self.panel = Panel(self.root, self.session, self)
+
+        # Set before the panel exists: building it sets a geometry, which fires
+        # a Configure, which calls straight back in here to record the position.
         self._dirty = False
         self._saved_at = time.time()
+        self._window = None
+
+        self.panel = Panel(self.root, self.session, self)
 
         # Artwork is optional and remembered between runs. Restoring it after
         # the panel exists means a missing or deleted asset just falls back to
@@ -80,6 +90,21 @@ class App:
             self.panel.refresh()
         except tk.TclError:
             pass
+
+    def remembered_window(self):
+        return self.config.window
+
+    def remember_window(self, geometry):
+        """Note where the window is. Held rather than saved, because Configure
+        fires continuously for the whole time a window is being dragged."""
+        self._window = geometry
+
+    def remembered_idle_pause(self):
+        return self.config.idle_pause
+
+    def remember_idle_pause(self, enabled):
+        self.config.idle_pause = enabled
+        self.config.save()
 
     def remember_appearance(self, background, digits):
         """Keep the chosen artwork for next time."""
@@ -217,8 +242,26 @@ class App:
                 # so it has to appear in the window or it vanishes.
                 self.panel.problem = "read failed: %s" % exc
             self._store_if_due()
+            self._pause_if_idle()
         self.panel.refresh()
         self.root.after(int(PERIOD * 1000), self.tick)
+
+    def _pause_if_idle(self):
+        """Stop the clock when the experience stops moving.
+
+        Rates are an average over elapsed time, so standing in town with the
+        clock running drags the number down and makes a good spot look bad.
+        Off by choice for party quests, where a minute between bursts of
+        experience is normal rather than a sign of having stopped.
+        """
+        if not self.panel.idle_pause.get():
+            return
+        idle = self.session.idle_for()
+        if idle is not None and idle >= IDLE_PAUSE_SECONDS:
+            self.session.pause()
+            self.panel.sync_button()
+            self.panel.problem = ("paused: no experience for %d seconds"
+                                  % IDLE_PAUSE_SECONDS)
 
     def _take_reading(self):
         text, glyphs = self.reader.read(grab(self.region))
@@ -253,8 +296,14 @@ class App:
         print("\n  Ready. Press START in the window to begin.\n")
         self.tick()
         self.root.mainloop()
+        # Written on the way out rather than on every Configure, which fires
+        # continuously for the whole time a window is being dragged.
+        if self._window:
+            self.config.window = self._window
         if self._dirty:
             self._store_templates()
+        else:
+            self.config.save()
         return 0
 
 

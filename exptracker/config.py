@@ -69,6 +69,24 @@ class Config:
         self._data["digits"] = value
 
     @property
+    def window(self):
+        """Where the window was last left, as a Tk geometry string."""
+        return self._data.get("window")
+
+    @window.setter
+    def window(self, value):
+        self._data["window"] = value
+
+    @property
+    def idle_pause(self):
+        """Whether to stop the clock after a stretch with no experience."""
+        return bool(self._data.get("idle_pause", True))
+
+    @idle_pause.setter
+    def idle_pause(self, value):
+        self._data["idle_pause"] = bool(value)
+
+    @property
     def overrides(self):
         return self._data.get("overrides") or {}
 

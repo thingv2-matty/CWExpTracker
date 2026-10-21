@@ -64,11 +64,45 @@ def render(digits, text, stagger=STAGGER, kerning=KERNING, scale=1.0):
     return canvas
 
 
-def fit(digits, text, max_width, max_height, **kwargs):
-    """Render, then shrink to fit the space available."""
+def outlined(image, thickness=2, colour=(0, 0, 0, 230)):
+    """Put a dark border round a sprite number so it survives any background.
+
+    The text rows already do this by stamping themselves in black before
+    drawing in white. The sprite digits had no equivalent, which is how a dark
+    red set over a dark red sunset came out completely invisible while being
+    drawn correctly the whole time.
+
+    Built from the alpha channel rather than the pixels, so it follows the
+    actual glyph shapes and works whatever colour the set happens to be.
+    """
+    from PIL import Image, ImageFilter
+
+    pad = thickness * 2
+    canvas = Image.new("RGBA", (image.width + pad, image.height + pad), (0, 0, 0, 0))
+    canvas.paste(image, (thickness, thickness))
+
+    spread = canvas.getchannel("A")
+    for _ in range(thickness):
+        spread = spread.filter(ImageFilter.MaxFilter(3))
+
+    halo = Image.new("RGBA", canvas.size, colour)
+    halo.putalpha(spread)
+    halo.alpha_composite(canvas)
+    return halo
+
+
+def fit(digits, text, max_width, max_height, outline=2, **kwargs):
+    """Render, outline it, then shrink to fit the space available.
+
+    Outlining happens before scaling so the border shrinks with the digits
+    rather than staying a fixed thickness as the number gets longer.
+    """
     image = render(digits, text, **kwargs)
     if image is None:
         return None
+    if outline:
+        image = outlined(image, thickness=outline)
+
     scale = min(max_width / image.width, max_height / image.height, 1.0)
     if scale < 1.0:
         from PIL import Image as _Image

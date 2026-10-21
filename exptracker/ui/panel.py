@@ -22,6 +22,7 @@ SILENCE_WARNING_SECONDS = 10
 
 ROWS = [
     ("lv", "LEVEL"),
+    ("ppm", "% PER MINUTE"),
     ("ttl", "TIME TO LEVEL"),
     ("session", "GRINDING FOR"),
     ("gained", "EXP GAINED"),
@@ -62,7 +63,10 @@ class Panel:
 
         root.configure(bg=BG)
         root.title("EXP")
-        root.geometry("420x470")
+        # Size AND position. Given size alone, Tk owns the placement and will
+        # happily move the window out from under you later; pinning both means
+        # it stays where it was dragged, and remembers between runs.
+        root.geometry(self.actions.remembered_window() or "420x470+120+120")
         root.minsize(380, 430)
         root.attributes("-topmost", True)
         root.resizable(True, True)
@@ -72,6 +76,7 @@ class Panel:
         self.canvas = tk.Canvas(root, bg=BG, highlightthickness=0, bd=0)
         self.canvas.pack(side="top", fill="both", expand=True)
         self.canvas.bind("<Configure>", lambda _event: self.refresh())
+        root.bind("<Configure>", self._remember_position)
 
         self._build_controls(bar)
 
@@ -156,6 +161,13 @@ class Panel:
                     command=lambda n=name: self.use_digits(n))
             menu.add_cascade(label="  Numbers  ", menu=sub)
 
+        self.idle_pause = tk.BooleanVar(value=self.actions.remembered_idle_pause())
+        menu.add_checkbutton(
+            label="  Pause when nothing is dying  ",
+            variable=self.idle_pause,
+            command=lambda: self.actions.remember_idle_pause(self.idle_pause.get()),
+            selectcolor=ACCENT)
+
         if backgrounds or digit_sets:
             menu.add_separator()
         else:
@@ -182,6 +194,12 @@ class Panel:
         )
 
     # ------------------------------------------------------------ actions --
+
+    def _remember_position(self, event):
+        """Keep note of where the window is, so it can be put back."""
+        if event.widget is not self.root:
+            return
+        self.actions.remember_window(self.root.geometry())
 
     def _show_menu(self):
         x = self.more.winfo_rootx()
@@ -301,6 +319,9 @@ class Panel:
     def _value(self, key, session):
         if key == "lv":
             return str(session.level) if session.level else "working it out"
+        if key == "ppm":
+            rate = session.percent_per_minute
+            return "-" if rate is None else "%.2f %%" % rate
         if key == "ttl":
             return clock(session.to_level)
         if key == "session":

@@ -157,6 +157,51 @@ class TestTotals(unittest.TestCase):
         self.assertEqual(int(session.gained), expected)
 
 
+class TestGrindingRate(unittest.TestCase):
+    """Percent of the current level per minute, which is how a spot is judged."""
+
+    def setUp(self):
+        self.session = grinding(25, 3810, minutes=10)
+        value = 3810
+        for _ in range(30):
+            value += 140
+            self.session.update(value, SHOWN(value, 25))
+
+    def test_matches_the_long_way_round(self):
+        expected = ((self.session.gained / self.session.requirement * 100)
+                    / (self.session.elapsed / 60))
+        self.assertAlmostEqual(self.session.percent_per_minute, expected, places=6)
+
+    def test_none_before_the_level_is_known(self):
+        self.assertIsNone(Session().percent_per_minute)
+
+    def test_falls_as_the_level_gets_longer(self):
+        """The same experience per hour is worth less at a higher level."""
+        before = self.session.percent_per_minute
+        self.session.adopt_level(40)
+        self.assertLess(self.session.percent_per_minute, before)
+
+
+class TestIdleDetection(unittest.TestCase):
+    """Time since experience last went UP, which is not the same as time since
+    the last believed reading: sitting in town reads fine and earns nothing."""
+
+    def test_unknown_before_anything_is_earned(self):
+        self.assertIsNone(Session().idle_for())
+
+    def test_a_gain_resets_it(self):
+        session = grinding(25, 3810)
+        session.update(3950, SHOWN(3950, 25))
+        self.assertLess(session.idle_for(), 1.0)
+
+    def test_a_reading_with_no_gain_does_not_reset_it(self):
+        session = grinding(25, 3810)
+        session.update(3950, SHOWN(3950, 25))
+        session.last_gain -= 120
+        session.update(3950, SHOWN(3950, 25))        # same value, still believed
+        self.assertGreater(session.idle_for(), 100)
+
+
 class TestHighLevels(unittest.TestCase):
     def test_a_few_points_do_not_move_the_percent(self):
         self.assertEqual(SHOWN(5000, 90), 0.04)
