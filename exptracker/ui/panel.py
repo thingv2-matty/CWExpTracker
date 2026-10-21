@@ -20,13 +20,16 @@ from .format import clock, thousands
 
 SILENCE_WARNING_SECONDS = 10
 
+# Session totals first, then rates, then where you currently are. Experience
+# per hour is not here because it is the headline above.
 ROWS = [
-    ("lv", "LEVEL"),
-    ("ppm", "% PER MINUTE"),
-    ("ttl", "TIME TO LEVEL"),
     ("session", "GRINDING FOR"),
-    ("gained", "EXP GAINED"),
-    ("levels", "LEVELS"),
+    ("pct", "TOTAL % GAINED"),
+    ("gained", "TOTAL EXP GAINED"),
+    ("levels", "LEVELS GAINED"),
+    ("ppm", "% PER MINUTE"),
+    ("lv", "LEVEL"),
+    ("ttl", "TIME TO LEVEL"),
     ("now", "CURRENT"),
 ]
 
@@ -269,10 +272,14 @@ class Panel:
         # through and overlaps the digits, so there is nowhere for a comma.
         text = str(int(self.session.per_hour))
 
-        if text != self._number_text:
+        # Keyed on the width as well as the text. Keyed on text alone, a render
+        # done before the canvas had a size was kept forever, because the only
+        # thing that could invalidate it was the number changing.
+        key = (text, width)
+        if key != self._number_text:
             self._number_image = sprites.fit(self._digits, text,
                                              width, HEADLINE_HEIGHT)
-            self._number_text = text
+            self._number_text = key
         if self._number_image is None:
             self._text(x, y, text, fill=ACCENT, size=34, bold=True, anchor="nw")
             return
@@ -308,7 +315,7 @@ class Panel:
         y += 12
         for key, label in ROWS:
             self._text(PAD, y, label, fill=self._label_colour, size=10, anchor="nw")
-            self._text(PAD + 150, y, self._value(key, session), fill=FG,
+            self._text(PAD + 175, y, self._value(key, session), fill=FG,
                        size=11, bold=True, anchor="nw")
             y += 22
 
@@ -319,6 +326,8 @@ class Panel:
     def _value(self, key, session):
         if key == "lv":
             return str(session.level) if session.level else "working it out"
+        if key == "pct":
+            return "%.1f %%" % session.percent_gained
         if key == "ppm":
             rate = session.percent_per_minute
             return "-" if rate is None else "%.2f %%" % rate

@@ -126,6 +126,11 @@ class Session:
         self.requirement = None
 
         self.gained = 0
+        # Percentage points accumulated since the session started, counting
+        # straight through level ups. Deliberately naive: 50% at one level plus
+        # 50% at the next reads as 100%, even though the second half was worth
+        # more experience. Matt knows and does not want it corrected.
+        self.percent_gained = 0.0
         self.levels = 0
 
         self.stuck = 0
@@ -279,6 +284,7 @@ class Session:
                 return self._reject()
             if value > self.value:
                 self.gained += value - self.value
+                self.percent_gained += (value - self.value) / requirement * 100.0
                 self.last_gain = time.time()
         return self._accept(value)
 
@@ -297,9 +303,12 @@ class Session:
         if carried / requirement * 100.0 > MAX_GAIN_PCT_PER_SAMPLE:
             return self._reject()
         self.gained += carried
+        self.percent_gained += (max(0, requirement - self.value) / requirement
+                                * 100.0)
         self.last_gain = time.time()
         self.levels += 1
         self.adopt_level(level)
+        self.percent_gained += value / self.requirement * 100.0
         return self._accept(value)
 
     def _update_unknown_level(self, value, percent, estimate):
@@ -331,10 +340,13 @@ class Session:
                 return self._reject()
             if value > self.value:
                 self.gained += value - self.value
+                self.percent_gained += (value - self.value) / requirement * 100.0
                 self.last_gain = time.time()
             self.requirement = requirement * 0.9 + estimate * 0.1
         else:
             self.gained += max(0, requirement - self.value) + value
+            self.percent_gained += (max(0, requirement - self.value) / requirement
+                                    * 100.0) + (value / estimate * 100.0)
             self.last_gain = time.time()
             self.levels += 1
             self.requirement = estimate

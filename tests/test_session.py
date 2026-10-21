@@ -182,6 +182,52 @@ class TestGrindingRate(unittest.TestCase):
         self.assertLess(self.session.percent_per_minute, before)
 
 
+class TestTotalPercentGained(unittest.TestCase):
+    """Percentage points since the session started, counting through levels."""
+
+    def test_it_accumulates_within_one_level(self):
+        """Five steps of 2% read as 10%.
+
+        In steps rather than one jump, because a single reading that moves more
+        than MAX_GAIN_PCT_PER_SAMPLE of a level is treated as a misread.
+        """
+        session = grinding(25, 0)
+        step = int(expcurve.requirement(25) * 0.02)
+        value = 0
+        for _ in range(5):
+            value += step
+            self.assertTrue(session.update(value, SHOWN(value, 25)))
+        self.assertAlmostEqual(session.percent_gained, 10.0, delta=0.2)
+
+    def test_it_counts_through_a_level_up(self):
+        """Half of one level then half of the next reads as 100%.
+
+        Deliberately naive. The second half is worth more experience than the
+        first, and that is not corrected for.
+        """
+        session = grinding(25, int(expcurve.requirement(25) * 0.5))
+        value = session.value
+        while session.level == 25:
+            value += 2000
+            if value >= expcurve.requirement(25):
+                value -= expcurve.requirement(25)
+                session.update(value, SHOWN(value, 26))
+                break
+            session.update(value, SHOWN(value, 25))
+
+        half_of_26 = int(expcurve.requirement(26) * 0.5)
+        value = session.value
+        while value < half_of_26:
+            value = min(value + 2000, half_of_26)
+            session.update(value, SHOWN(value, 26))
+
+        self.assertEqual(session.levels, 1)
+        self.assertAlmostEqual(session.percent_gained, 100.0, delta=1.0)
+
+    def test_starts_at_zero(self):
+        self.assertEqual(grinding(25, 3810).percent_gained, 0.0)
+
+
 class TestIdleDetection(unittest.TestCase):
     """Time since experience last went UP, which is not the same as time since
     the last believed reading: sitting in town reads fine and earns nothing."""

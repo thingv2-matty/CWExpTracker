@@ -103,6 +103,14 @@ def fit(digits, text, max_width, max_height, outline=2, **kwargs):
     if outline:
         image = outlined(image, thickness=outline)
 
+    # A canvas that has not been laid out yet reports a width of 1, and the
+    # caller subtracts its padding from that, so the space available arrives
+    # negative. Scaling by a negative factor collapsed the number to a single
+    # pixel, and since the result was cached it stayed that way until the text
+    # changed. Nothing sensible can be drawn in no space, so say so.
+    if max_width <= 0 or max_height <= 0:
+        return None
+
     scale = min(max_width / image.width, max_height / image.height, 1.0)
     if scale < 1.0:
         from PIL import Image as _Image

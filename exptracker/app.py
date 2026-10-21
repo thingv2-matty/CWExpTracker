@@ -293,7 +293,14 @@ class App:
                 self._store_later()
 
     def run(self):
-        print("\n  Ready. Press START in the window to begin.\n")
+        # Running from the moment the window appears. Opening the tracker
+        # mid-grind and then having to find and press START costs a couple of
+        # seconds of standing still, which is a couple of seconds of being hit.
+        # Nothing is lost by starting early: with no experience coming in, the
+        # idle pause stops the clock on its own.
+        self.session.start()
+        self.panel.sync_button()
+        print("\n  Running. The clock starts now.\n")
         self.tick()
         self.root.mainloop()
         # Written on the way out rather than on every Configure, which fires
