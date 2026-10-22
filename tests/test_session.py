@@ -228,6 +228,74 @@ class TestTotalPercentGained(unittest.TestCase):
         self.assertEqual(grinding(25, 3810).percent_gained, 0.0)
 
 
+class TestWindowsAndSegments(unittest.TestCase):
+    """Rolling windows and fixed blocks, over a session that drifts."""
+
+    LEVEL = 25
+
+    def build(self, plan):
+        """plan is a list of (minutes, experience per minute)."""
+        session = Session()
+        session.banked = 0.0
+        session.update(0, 0.0)
+        session.adopt_level(self.LEVEL)
+        session.value = 0
+        value = 0
+        for minutes, per_minute in plan:
+            for _ in range(minutes * 4):          # four readings a minute
+                value += per_minute // 4
+                session.banked += 15.0
+                session.update(value, SHOWN(value, self.LEVEL))
+        return session
+
+    def test_the_window_tracks_the_recent_rate_not_the_average(self):
+        session = self.build([(10, 600), (10, 150)])
+        recent = session.window(10 * 60)
+        overall = session.per_hour
+        self.assertLess(recent["per_hour"], overall * 0.7,
+                        "the last ten minutes were slow and should look it")
+
+    def test_a_window_longer_than_the_session_is_flagged_partial(self):
+        session = self.build([(5, 600)])
+        recent = session.window(60 * 60)
+        self.assertTrue(recent["partial"])
+        self.assertAlmostEqual(recent["per_hour"], session.per_hour, delta=1)
+
+    def test_segments_cover_the_session_without_overlapping(self):
+        session = self.build([(10, 600), (10, 150), (10, 600)])
+        blocks = session.segments(10 * 60)
+        self.assertEqual(len(blocks), 3)
+        self.assertEqual(sum(b["gained"] for b in blocks), session.gained)
+        for block in blocks:
+            self.assertTrue(block["complete"])
+
+    def test_a_bad_stretch_shows_up_as_one_bad_block(self):
+        session = self.build([(10, 600), (10, 150), (10, 600)])
+        first, middle, last = session.segments(10 * 60)
+        self.assertGreater(first["per_hour"], middle["per_hour"] * 2)
+        self.assertGreater(last["per_hour"], middle["per_hour"] * 2)
+
+    def test_an_unfinished_block_is_marked(self):
+        session = self.build([(15, 600)])
+        blocks = session.segments(10 * 60)
+        self.assertEqual(len(blocks), 2)
+        self.assertTrue(blocks[0]["complete"])
+        self.assertFalse(blocks[1]["complete"])
+
+    def test_a_pause_does_not_punch_a_hole_in_the_history(self):
+        """History is keyed on elapsed, so stopped time is simply absent."""
+        session = self.build([(10, 600)])
+        before = session.window(10 * 60)["per_hour"]
+        session.banked += 3600          # an hour of being paused
+        after = session.window(10 * 60)["per_hour"]
+        self.assertNotAlmostEqual(before, after, delta=1)
+        self.assertLess(after, before, "elapsed grew, so the rate falls")
+
+    def test_longest_dry_spell(self):
+        session = self.build([(2, 600)])
+        self.assertAlmostEqual(session.longest_dry_spell(), 15.0, delta=1)
+
+
 class TestIdleDetection(unittest.TestCase):
     """Time since experience last went UP, which is not the same as time since
     the last believed reading: sitting in town reads fine and earns nothing."""

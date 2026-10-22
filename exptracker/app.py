@@ -99,6 +99,13 @@ class App:
         fires continuously for the whole time a window is being dragged."""
         self._window = geometry
 
+    def remembered_window_minutes(self):
+        return self.config.window_minutes
+
+    def remember_window_minutes(self, minutes):
+        self.config.window_minutes = minutes
+        self.config.save()
+
     def remembered_idle_pause(self):
         return self.config.idle_pause
 

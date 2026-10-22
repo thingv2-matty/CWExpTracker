@@ -28,6 +28,7 @@ ROWS = [
     ("gained", "TOTAL EXP GAINED"),
     ("levels", "LEVELS GAINED"),
     ("ppm", "% PER MINUTE"),
+    ("recent", "LAST 10 MIN"),       # label is rewritten to match the window
     ("lv", "LEVEL"),
     ("ttl", "TIME TO LEVEL"),
     ("now", "CURRENT"),
@@ -42,6 +43,9 @@ OUTLINE_STEPS = [(-1, -1), (0, -1), (1, -1), (-1, 0),
 PAD = 20
 HEADLINE_HEIGHT = 58
 
+# Rolling window lengths offered in the menu, in minutes.
+WINDOW_CHOICES = (10, 20, 30, 60)
+
 
 class Panel:
     """The window. Reads from a Session, never writes to one."""
@@ -54,6 +58,7 @@ class Panel:
         self.auto_learned = 0
         self.problem = ""
 
+        self.window_minutes = actions.remembered_window_minutes()
         self.background_name = None
         self.digits_name = None
         self._digits = None
@@ -164,6 +169,19 @@ class Panel:
                     command=lambda n=name: self.use_digits(n))
             menu.add_cascade(label="  Numbers  ", menu=sub)
 
+        window_menu = styled(menu)
+        self._window_choice = tk.IntVar(value=self.window_minutes)
+        for minutes in WINDOW_CHOICES:
+            window_menu.add_radiobutton(
+                label="  %d minutes  " % minutes, value=minutes,
+                variable=self._window_choice,
+                command=lambda m=minutes: self.use_window(m),
+                selectcolor=ACCENT)
+        menu.add_cascade(label="  Rolling window  ", menu=window_menu)
+
+        menu.add_command(label="  Session recap...  ", command=self.show_recap)
+        menu.add_separator()
+
         self.idle_pause = tk.BooleanVar(value=self.actions.remembered_idle_pause())
         menu.add_checkbutton(
             label="  Pause when nothing is dying  ",
@@ -197,6 +215,15 @@ class Panel:
         )
 
     # ------------------------------------------------------------ actions --
+
+    def use_window(self, minutes):
+        self.window_minutes = minutes
+        self.actions.remember_window_minutes(minutes)
+        self.refresh()
+
+    def show_recap(self):
+        from .recap import show
+        return show(self.root, self.session, self.window_minutes)
 
     def _remember_position(self, event):
         """Keep note of where the window is, so it can be put back."""
@@ -314,6 +341,8 @@ class Panel:
 
         y += 12
         for key, label in ROWS:
+            if key == "recent":
+                label = "LAST %d MIN" % self.window_minutes
             self._text(PAD, y, label, fill=self._label_colour, size=10, anchor="nw")
             self._text(PAD + 175, y, self._value(key, session), fill=FG,
                        size=11, bold=True, anchor="nw")
@@ -326,6 +355,13 @@ class Panel:
     def _value(self, key, session):
         if key == "lv":
             return str(session.level) if session.level else "working it out"
+        if key == "recent":
+            recent = session.window(self.window_minutes * 60)
+            if recent is None:
+                return "-"
+            return "%s  %.2f %%%s" % (thousands(recent["per_hour"]),
+                                      recent["percent_per_minute"],
+                                      "  so far" if recent["partial"] else "")
         if key == "pct":
             return "%.1f %%" % session.percent_gained
         if key == "ppm":

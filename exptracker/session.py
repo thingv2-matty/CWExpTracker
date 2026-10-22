@@ -132,6 +132,9 @@ class Session:
         # more experience. Matt knows and does not want it corrected.
         self.percent_gained = 0.0
         self.levels = 0
+        # (elapsed, gained, percent_gained) at every point experience moved.
+        # Seeded at zero so a window can always find somewhere to start from.
+        self.history = [(0.0, 0, 0.0)]
 
         self.stuck = 0
         self.rejected = 0
@@ -286,6 +289,7 @@ class Session:
                 self.gained += value - self.value
                 self.percent_gained += (value - self.value) / requirement * 100.0
                 self.last_gain = time.time()
+                self._record()
         return self._accept(value)
 
     def _next_level(self, value, requirement, level):
@@ -309,6 +313,7 @@ class Session:
         self.levels += 1
         self.adopt_level(level)
         self.percent_gained += value / self.requirement * 100.0
+        self._record()
         return self._accept(value)
 
     def _update_unknown_level(self, value, percent, estimate):
@@ -342,6 +347,7 @@ class Session:
                 self.gained += value - self.value
                 self.percent_gained += (value - self.value) / requirement * 100.0
                 self.last_gain = time.time()
+                self._record()
             self.requirement = requirement * 0.9 + estimate * 0.1
         else:
             self.gained += max(0, requirement - self.value) + value
@@ -349,6 +355,7 @@ class Session:
                                     * 100.0) + (value / estimate * 100.0)
             self.last_gain = time.time()
             self.levels += 1
+            self._record()
             self.requirement = estimate
         return self._accept(value)
 
@@ -400,6 +407,93 @@ class Session:
         if self.value is None or not self.requirement:
             return None
         return self.value / self.requirement * 100.0
+
+    def _record(self):
+        """Note the running totals against elapsed time.
+
+        Keyed on elapsed rather than the clock on the wall, so a pause does not
+        punch a hole in the history. Ten minutes of session time is ten minutes
+        of grinding whether or not you stopped for a sandwich in the middle.
+        """
+        self.history.append((self.elapsed, self.gained, self.percent_gained))
+
+    def window(self, seconds):
+        """Totals and rates over the last `seconds` of session time.
+
+        Falls back to the whole session when it is shorter than the window
+        asked for, so the figure is honest rather than empty early on.
+        """
+        if not self.history:
+            return None
+        now = self.elapsed
+        cutoff = now - seconds
+
+        start = self.history[0]
+        for sample in self.history:
+            if sample[0] <= cutoff:
+                start = sample
+            else:
+                break
+
+        span = now - start[0]
+        if span <= 0:
+            return None
+        gained = self.gained - start[1]
+        percent = self.percent_gained - start[2]
+        return {
+            "seconds": span,
+            "gained": gained,
+            "percent": percent,
+            "per_hour": gained / (span / 3600.0),
+            "percent_per_minute": percent / (span / 60.0),
+            "partial": span < seconds * 0.95,
+        }
+
+    def segments(self, length):
+        """The session cut into fixed blocks of `length` seconds.
+
+        Unlike the rolling window these do not overlap, so a bad stretch shows
+        up as one poor block rather than dragging several of them down.
+        """
+        if not self.history or self.elapsed < 1:
+            return []
+        out = []
+        index = 0
+        start_total, start_percent = self.history[0][1], self.history[0][2]
+        edge = length
+        while edge - length < self.elapsed:
+            while index < len(self.history) and self.history[index][0] < edge:
+                index += 1
+            if edge >= self.elapsed:
+                # The last block runs to now, not to the last sample strictly
+                # before the edge. Taking the lookup would drop any reading
+                # landing exactly on the boundary, so the blocks would not add
+                # up to the session total.
+                total, percent = self.gained, self.percent_gained
+            else:
+                at = index - 1 if index else 0
+                total, percent = self.history[at][1], self.history[at][2]
+            span = min(edge, self.elapsed) - (edge - length)
+            if span <= 0:
+                break
+            out.append({
+                "from": edge - length,
+                "to": min(edge, self.elapsed),
+                "gained": total - start_total,
+                "percent": percent - start_percent,
+                "per_hour": (total - start_total) / (span / 3600.0),
+                "percent_per_minute": (percent - start_percent) / (span / 60.0),
+                "complete": edge <= self.elapsed,
+            })
+            start_total, start_percent = total, percent
+            edge += length
+        return out
+
+    def longest_dry_spell(self):
+        """The biggest gap between gains, in seconds of session time."""
+        if len(self.history) < 2:
+            return 0.0
+        return max(b[0] - a[0] for a, b in zip(self.history, self.history[1:]))
 
     @property
     def percent_per_minute(self):

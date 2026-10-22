@@ -87,6 +87,15 @@ class Config:
         self._data["idle_pause"] = bool(value)
 
     @property
+    def window_minutes(self):
+        """Length of the rolling window shown on the readout."""
+        return int(self._data.get("window_minutes", 10))
+
+    @window_minutes.setter
+    def window_minutes(self, value):
+        self._data["window_minutes"] = int(value)
+
+    @property
     def overrides(self):
         return self._data.get("overrides") or {}
 
