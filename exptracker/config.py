@@ -96,6 +96,15 @@ class Config:
         self._data["window_minutes"] = int(value)
 
     @property
+    def recap_on_stop(self):
+        """Whether pressing STOP puts the session recap up."""
+        return bool(self._data.get("recap_on_stop", True))
+
+    @recap_on_stop.setter
+    def recap_on_stop(self, value):
+        self._data["recap_on_stop"] = bool(value)
+
+    @property
     def overrides(self):
         return self._data.get("overrides") or {}
 

@@ -23,7 +23,6 @@ SILENCE_WARNING_SECONDS = 10
 # Session totals first, then rates, then where you currently are. Experience
 # per hour is not here because it is the headline above.
 ROWS = [
-    ("session", "GRINDING FOR"),
     ("pct", "TOTAL % GAINED"),
     ("gained", "TOTAL EXP GAINED"),
     ("levels", "LEVELS GAINED"),
@@ -32,6 +31,7 @@ ROWS = [
     ("lv", "LEVEL"),
     ("ttl", "TIME TO LEVEL"),
     ("now", "CURRENT"),
+    ("session", "GRINDING FOR"),
 ]
 
 # White with a black outline, so the same text stays legible on a dark panel
@@ -123,15 +123,30 @@ class Panel:
     # -------------------------------------------------------------- build --
 
     def _build_controls(self, bar):
+        # Map zone lives in the menu now. It is a setup action, used once in a
+        # blue moon, and it was taking a quarter of the bar from things pressed
+        # every session.
         self.go = self._button(bar, "START", self._toggle, primary=True)
         self.go.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        self._button(bar, "RESET", self.actions.reset).pack(
+        self._button(bar, "STOP", self.stop).pack(
             side="left", fill="x", expand=True, padx=(0, 6))
-        self._button(bar, "MAP ZONE", self.actions.remap).pack(
+        self._button(bar, "RESET", self.actions.reset).pack(
             side="left", fill="x", expand=True, padx=(0, 6))
         self.more = self._button(bar, "···", self._show_menu)
         self.more.pack(side="left")
         self.menu = self._build_menu()
+
+    def stop(self):
+        """End the session: stop the clock, and show how it went.
+
+        Distinct from pause, which is for stepping away mid-grind. Stop means
+        finished, so it is the natural moment to put the recap up.
+        """
+        self.session.pause()
+        self.sync_button()
+        self.refresh()
+        if self.recap_on_stop.get():
+            self.show_recap()
 
     def _build_menu(self):
         def styled(parent=None):
@@ -180,6 +195,18 @@ class Panel:
         menu.add_cascade(label="  Rolling window  ", menu=window_menu)
 
         menu.add_command(label="  Session recap...  ", command=self.show_recap)
+
+        self.recap_on_stop = tk.BooleanVar(
+            value=self.actions.remembered_recap_on_stop())
+        menu.add_checkbutton(
+            label="  Show recap when stopping  ",
+            variable=self.recap_on_stop,
+            command=lambda: self.actions.remember_recap_on_stop(
+                self.recap_on_stop.get()),
+            selectcolor=ACCENT)
+        menu.add_separator()
+        menu.add_command(label="  Map the zone again...  ",
+                         command=self.actions.remap)
         menu.add_separator()
 
         self.idle_pause = tk.BooleanVar(value=self.actions.remembered_idle_pause())
@@ -223,7 +250,7 @@ class Panel:
 
     def show_recap(self):
         from .recap import show
-        return show(self.root, self.session, self.window_minutes)
+        return show(self.root, self.session, self.window_minutes, self)
 
     def _remember_position(self, event):
         """Keep note of where the window is, so it can be put back."""
@@ -267,24 +294,46 @@ class Panel:
         self.canvas.create_text(x, y, text=text, fill=fill, font=font,
                                 anchor=anchor)
 
-    def _draw_background(self, width, height):
-        if self._background is None:
-            return
+    @property
+    def has_background(self):
+        return self._background is not None
+
+    def paint_background(self, canvas, width, height, keep):
+        """Crop-to-fill the chosen picture onto any canvas.
+
+        Shared with the recap window so both wear the same theme. A window that
+        ignored it would look like a different program.
+
+        The scaled copy is cached per size, but only for the readout's own
+        canvas: the recap is a different shape and would otherwise fight it for
+        the one slot.
+        """
         from PIL import Image, ImageTk
 
-        if self._scaled_for != (width, height):
+        if self._background is None:
+            return
+        mine = canvas is self.canvas
+        if mine and self._scaled_for == (width, height):
+            fitted = self._scaled
+        else:
             source = self._background
             scale = max(width / source.width, height / source.height)
             size = (max(1, int(source.width * scale)),
                     max(1, int(source.height * scale)))
-            fitted = source.resize(size, Image.LANCZOS)
-            left = (fitted.width - width) // 2
-            top = (fitted.height - height) // 2
-            self._scaled = fitted.crop((left, top, left + width, top + height))
-            self._scaled_for = (width, height)
-        photo = ImageTk.PhotoImage(self._scaled)
-        self._keep.append(photo)
-        self.canvas.create_image(0, 0, image=photo, anchor="nw")
+            grown = source.resize(size, Image.LANCZOS)
+            left = (grown.width - width) // 2
+            top = (grown.height - height) // 2
+            fitted = grown.crop((left, top, left + width, top + height))
+            if mine:
+                self._scaled = fitted
+                self._scaled_for = (width, height)
+
+        photo = ImageTk.PhotoImage(fitted)
+        keep.append(photo)
+        canvas.create_image(0, 0, image=photo, anchor="nw")
+
+    def _draw_background(self, width, height):
+        self.paint_background(self.canvas, width, height, self._keep)
 
     def _draw_headline(self, x, y, width):
         """Experience per hour, in the damage font when one is loaded."""

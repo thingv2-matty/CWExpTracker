@@ -106,6 +106,13 @@ class App:
         self.config.window_minutes = minutes
         self.config.save()
 
+    def remembered_recap_on_stop(self):
+        return self.config.recap_on_stop
+
+    def remember_recap_on_stop(self, enabled):
+        self.config.recap_on_stop = enabled
+        self.config.save()
+
     def remembered_idle_pause(self):
         return self.config.idle_pause
 

@@ -5,11 +5,16 @@ The running averages on the readout flatten everything. Three hours at a good
 rate and three hours of drifting average out to something unremarkable, and the
 drifting is the part worth seeing. Cutting the session into fixed blocks shows
 where the time actually went.
+
+Drawn on a canvas for the same reason the readout is: so it can wear the same
+background. A window that ignores the theme the tracker is wearing looks like a
+different program.
 """
 
 import tkinter as tk
 
 from ..theme import ACCENT, BG, DIM, FG, LINE, MONO, PANEL, WARN
+from . import facts
 from .format import clock, thousands
 
 # A block has to be meaningfully better or worse than the session average
@@ -17,105 +22,180 @@ from .format import clock, thousands
 GOOD = 1.15
 POOR = 0.85
 
+WIDTH = 380
+PAD = 20
+LINE_HEIGHT = 21
 
-def show(parent, session, minutes):
-    """Open the recap for a session, cut into blocks of `minutes`."""
-    window = tk.Toplevel(parent)
-    window.title("Session recap")
-    window.configure(bg=BG)
-    window.resizable(False, False)
-    window.attributes("-topmost", True)
-
-    segments = session.segments(minutes * 60)
-    _headline(window, session)
-    tk.Frame(window, bg=LINE, height=1).pack(fill="x", padx=18, pady=(4, 0))
-
-    if segments:
-        _blocks(window, session, segments, minutes)
-    else:
-        tk.Label(window, text="  nothing to show yet  ", bg=BG, fg=DIM,
-                 font=(MONO, 10)).pack(padx=24, pady=20)
-
-    _footer(window, session, segments)
-
-    tk.Button(window, text="CLOSE", command=window.destroy, bg=PANEL, fg=FG,
-              activebackground=LINE, activeforeground=ACCENT, relief="flat",
-              bd=0, font=(MONO, 10, "bold"), padx=16, pady=7,
-              cursor="hand2").pack(pady=(4, 16))
-
-    window.transient(parent)
-    window.update_idletasks()
-    _centre_on(window, parent)
-    return window
+OUTLINE_STEPS = [(-1, -1), (0, -1), (1, -1), (-1, 0),
+                 (1, 0), (-1, 1), (0, 1), (1, 1)]
 
 
-def _centre_on(window, parent):
-    x = parent.winfo_rootx() + (parent.winfo_width() - window.winfo_width()) // 2
-    y = parent.winfo_rooty() + 40
-    window.geometry("+%d+%d" % (max(0, x), max(0, y)))
+class Recap:
+    """A window that borrows the readout's look."""
 
+    def __init__(self, parent, session, minutes, panel):
+        self.session = session
+        self.minutes = minutes
+        self.panel = panel
+        self.segments = session.segments(minutes * 60)
+        self.fact = facts.pick(session, self.segments)
+        self._keep = []
 
-def _row(parent, label, value, colour=FG, indent=18):
-    line = tk.Frame(parent, bg=BG)
-    line.pack(fill="x", padx=indent, pady=1)
-    tk.Label(line, text=label, bg=BG, fg=DIM, font=(MONO, 9),
-             width=18, anchor="w").pack(side="left")
-    tk.Label(line, text=value, bg=BG, fg=colour, font=(MONO, 10, "bold"),
-             anchor="w").pack(side="left")
+        self.window = tk.Toplevel(parent)
+        self.window.title("Session recap")
+        self.window.configure(bg=BG)
+        self.window.resizable(False, False)
+        self.window.attributes("-topmost", True)
 
+        height = self._measure()
+        self.canvas = tk.Canvas(self.window, bg=BG, width=WIDTH, height=height,
+                                highlightthickness=0, bd=0)
+        self.canvas.pack(side="top", fill="both", expand=True)
 
-def _headline(window, session):
-    tk.Label(window, text="SESSION RECAP", bg=BG, fg=DIM, font=(MONO, 9),
-             anchor="w").pack(fill="x", padx=18, pady=(16, 2))
-    tk.Label(window, text=thousands(session.per_hour), bg=BG, fg=ACCENT,
-             font=(MONO, 26, "bold"), anchor="w").pack(fill="x", padx=18)
-    tk.Label(window, text="EXP / HOUR OVERALL", bg=BG, fg=DIM, font=(MONO, 8),
-             anchor="w").pack(fill="x", padx=18, pady=(0, 10))
+        bar = tk.Frame(self.window, bg=BG)
+        bar.pack(side="bottom", fill="x", padx=PAD, pady=(6, 14))
+        tk.Button(bar, text="CLOSE", command=self.window.destroy, bg=PANEL,
+                  fg=FG, activebackground=LINE, activeforeground=ACCENT,
+                  relief="flat", bd=0, font=(MONO, 10, "bold"), pady=7,
+                  cursor="hand2", highlightthickness=1,
+                  highlightbackground=LINE).pack(fill="x")
 
-    _row(window, "GRINDING FOR", clock(session.elapsed))
-    _row(window, "TOTAL EXP", thousands(session.gained))
-    _row(window, "TOTAL %", "%.1f %%" % session.percent_gained)
-    _row(window, "LEVELS", str(session.levels))
+        self.window.transient(parent)
+        self.canvas.bind("<Configure>", lambda _e: self.draw())
+        self.draw()
+        self.window.update_idletasks()
+        self._place(parent)
 
+    # ------------------------------------------------------------ layout --
 
-def _blocks(window, session, segments, minutes):
-    tk.Label(window, text="  %d MINUTE BLOCKS  " % minutes, bg=BG, fg=DIM,
-             font=(MONO, 9), anchor="w").pack(fill="x", padx=18, pady=(10, 4))
+    def _measure(self):
+        rows = 5                                   # headline block
+        rows += 1 + len(self.segments) + 1         # blocks heading and list
+        if any(s["complete"] for s in self.segments):
+            rows += 4                              # best, worst, spread, dry
+        if self.fact:
+            rows += 3
+        return 120 + rows * LINE_HEIGHT
 
-    average = session.per_hour or 1
-    for index, seg in enumerate(segments, start=1):
-        share = seg["per_hour"] / average
-        colour = FG
-        if seg["complete"]:
-            colour = ACCENT if share >= GOOD else WARN if share <= POOR else FG
+    def _place(self, parent):
+        x = parent.winfo_rootx() + (parent.winfo_width()
+                                    - self.window.winfo_width()) // 2
+        y = parent.winfo_rooty() + 30
+        self.window.geometry("+%d+%d" % (max(0, x), max(0, y)))
 
-        label = "%d.  %s-%s" % (index, _mins(seg["from"]), _mins(seg["to"]))
-        value = "%8s/hr   %.2f %%/min%s" % (
-            thousands(seg["per_hour"]), seg["percent_per_minute"],
-            "" if seg["complete"] else "   so far")
-        _row(window, label, value, colour)
+    @property
+    def _dim(self):
+        """Labels go white over artwork and stay dim on the plain theme."""
+        return FG if self.panel.has_background else DIM
+
+    # ----------------------------------------------------------- drawing --
+
+    def _text(self, x, y, text, fill=FG, size=10, bold=False, anchor="nw"):
+        font = (MONO, size, "bold") if bold else (MONO, size)
+        for dx, dy in OUTLINE_STEPS:
+            self.canvas.create_text(x + dx, y + dy, text=text, fill="#000000",
+                                    font=font, anchor=anchor)
+        self.canvas.create_text(x, y, text=text, fill=fill, font=font,
+                                anchor=anchor)
+
+    def _row(self, y, label, value, colour=FG):
+        self._text(PAD, y, label, fill=self._dim, size=9)
+        self._text(PAD + 130, y, value, fill=colour, size=10, bold=True)
+        return y + LINE_HEIGHT
+
+    def draw(self):
+        self.canvas.delete("all")
+        self._keep.clear()
+        width = self.canvas.winfo_width() or WIDTH
+        height = self.canvas.winfo_height() or self._measure()
+        self.panel.paint_background(self.canvas, width, height, self._keep)
+
+        y = 14
+        self._text(PAD, y, "SESSION RECAP", fill=self._dim, size=9)
+        y += 18
+        self._text(PAD, y, thousands(self.session.per_hour), fill=ACCENT,
+                   size=24, bold=True)
+        y += 34
+        self._text(PAD, y, "EXP / HOUR OVERALL", fill=self._dim, size=8)
+        y += 22
+
+        y = self._row(y, "GRINDING FOR", clock(self.session.elapsed))
+        y = self._row(y, "TOTAL EXP", thousands(self.session.gained))
+        y = self._row(y, "TOTAL %", "%.1f %%" % self.session.percent_gained)
+        y = self._row(y, "LEVELS", str(self.session.levels))
+
+        y += 6
+        self.canvas.create_line(PAD, y, width - PAD, y,
+                                fill=FG if self.panel.has_background else LINE)
+        y += 8
+
+        y = self._blocks(y)
+        y = self._footer(y)
+        self._fact(y, width)
+
+    def _blocks(self, y):
+        self._text(PAD, y, "%d MINUTE BLOCKS" % self.minutes,
+                   fill=self._dim, size=9)
+        y += LINE_HEIGHT
+        if not self.segments:
+            return self._row(y, "", "nothing to show yet", self._dim)
+
+        average = self.session.per_hour or 1
+        for index, seg in enumerate(self.segments, start=1):
+            share = seg["per_hour"] / average
+            colour = FG
+            if seg["complete"]:
+                colour = ACCENT if share >= GOOD else WARN if share <= POOR else FG
+            label = "%d.  %s-%s min" % (index, _mins(seg["from"]),
+                                        _mins(seg["to"]))
+            value = "%9s/hr  %.2f%%%s" % (
+                thousands(seg["per_hour"]), seg["percent_per_minute"],
+                "" if seg["complete"] else "  so far")
+            y = self._row(y, label, value, colour)
+        return y
+
+    def _footer(self, y):
+        done = [s for s in self.segments if s["complete"]]
+        if not done:
+            return y
+        best = max(done, key=lambda s: s["per_hour"])
+        worst = min(done, key=lambda s: s["per_hour"])
+        spread = (best["per_hour"] / worst["per_hour"]) if worst["per_hour"] else 0
+
+        y += 6
+        y = self._row(y, "BEST BLOCK", "#%d   %s/hr"
+                      % (done.index(best) + 1, thousands(best["per_hour"])),
+                      ACCENT)
+        y = self._row(y, "WORST BLOCK", "#%d   %s/hr"
+                      % (done.index(worst) + 1, thousands(worst["per_hour"])),
+                      WARN)
+        if spread:
+            y = self._row(y, "BEST vs WORST", "%.1fx" % spread)
+        return self._row(y, "LONGEST DRY SPELL",
+                         clock(self.session.longest_dry_spell()))
+
+    def _fact(self, y, width):
+        if not self.fact:
+            return
+        y += 8
+        self.canvas.create_line(PAD, y, width - PAD, y,
+                                fill=FG if self.panel.has_background else LINE)
+        y += 10
+        self._wrapped(PAD, y, self.fact, width - PAD * 2)
+
+    def _wrapped(self, x, y, text, width):
+        """Canvas text does wrap, but only if told how wide it may be."""
+        font = (MONO, 9)
+        for dx, dy in OUTLINE_STEPS:
+            self.canvas.create_text(x + dx, y + dy, text=text, fill="#000000",
+                                    font=font, anchor="nw", width=width)
+        self.canvas.create_text(x, y, text=text, fill=ACCENT, font=font,
+                                anchor="nw", width=width)
 
 
 def _mins(seconds):
     return "%d" % round(seconds / 60)
 
 
-def _footer(window, session, segments):
-    done = [s for s in segments if s["complete"]]
-    if not done:
-        return
-    tk.Frame(window, bg=LINE, height=1).pack(fill="x", padx=18, pady=(10, 6))
-
-    best = max(done, key=lambda s: s["per_hour"])
-    worst = min(done, key=lambda s: s["per_hour"])
-    spread = (best["per_hour"] / worst["per_hour"]) if worst["per_hour"] else 0
-
-    _row(window, "BEST BLOCK",
-         "#%d   %s/hr" % (done.index(best) + 1, thousands(best["per_hour"])),
-         ACCENT)
-    _row(window, "WORST BLOCK",
-         "#%d   %s/hr" % (done.index(worst) + 1, thousands(worst["per_hour"])),
-         WARN)
-    if spread:
-        _row(window, "BEST vs WORST", "%.1fx" % spread)
-    _row(window, "LONGEST DRY SPELL", clock(session.longest_dry_spell()))
+def show(parent, session, minutes, panel):
+    return Recap(parent, session, minutes, panel).window
