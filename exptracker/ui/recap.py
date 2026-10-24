@@ -12,6 +12,7 @@ different program.
 """
 
 import tkinter as tk
+import tkinter.font as tkfont
 
 from ..theme import ACCENT, BG, DIM, FG, LINE, MONO, PANEL, WARN
 from . import facts
@@ -28,6 +29,12 @@ LINE_HEIGHT = 21
 
 OUTLINE_STEPS = [(-1, -1), (0, -1), (1, -1), (-1, 0),
                  (1, 0), (-1, 1), (0, 1), (1, 1)]
+
+# The easter egg ends in emoji, which Consolas does not have, so Tk falls
+# back to Segoe UI Emoji and GDI draws it in one colour. At the 9pt the rest
+# of the fact is set in, the sunglasses are an unreadable blob. Drawn a few
+# points up they land, and the single colour is the accent, which suits.
+FLOURISH_SIZE = 14
 
 
 class Recap:
@@ -181,7 +188,27 @@ class Recap:
         self.canvas.create_line(PAD, y, width - PAD, y,
                                 fill=FG if self.panel.has_background else LINE)
         y += 10
-        self._wrapped(PAD, y, self.fact, width - PAD * 2)
+        head, flourish = self._split_flourish(width - PAD * 2)
+        self._wrapped(PAD, y, head, width - PAD * 2)
+        if flourish:
+            measured = tkfont.Font(family=MONO, size=9).measure(head)
+            self._text(PAD + measured, y - 4, flourish, fill=ACCENT,
+                       size=FLOURISH_SIZE)
+
+    def _split_flourish(self, room):
+        """The emoji tail of an easter egg, to be drawn larger than the rest.
+
+        Only worth separating while the whole thing still fits on one line:
+        once it wraps there is no single x to start the emoji from, so the
+        fact goes out whole at the ordinary size instead.
+        """
+        if facts.NICE not in self.fact:
+            return self.fact, None
+        head = self.fact.split(facts.NICE)[0]
+        font = tkfont.Font(family=MONO, size=9)
+        if font.measure(head) + FLOURISH_SIZE * 3 > room:
+            return self.fact, None
+        return head, facts.NICE
 
     def _wrapped(self, x, y, text, width):
         """Canvas text does wrap, but only if told how wide it may be."""
