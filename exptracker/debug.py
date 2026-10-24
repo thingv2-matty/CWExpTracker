@@ -54,7 +54,58 @@ def _header(region, rgb, reader, glyphs):
         "tolerance    : %s   margin %s" % (templates_module.TOLERANCE,
                                            templates_module.MARGIN),
         "characters   : %d" % len(glyphs),
+        "glyph sizes  : %s" % _tally(g.bitmap.shape for g in glyphs),
+        "stored sizes : %s" % _tally(b.shape for samples
+                                     in reader.templates.values()
+                                     for b in samples),
         "",
+    ] + _size_warning(glyphs, reader)
+
+
+def _tally(shapes):
+    """Count how many glyphs came out at each size, commonest first."""
+    from collections import Counter
+
+    counts = Counter("%dx%d" % shape for shape in shapes)
+    if not counts:
+        return "none"
+    return ", ".join("%s x%d" % pair for pair in counts.most_common())
+
+
+def _size_warning(glyphs, reader):
+    """Say so when what is on screen is not the size the templates were taught.
+
+    The screen resolution changes how the game draws the strip, and it is not a
+    clean scale: measured at two resolutions the digits went 11x8 to 10x7, which
+    is 0.909 on one axis and 0.875 on the other. Nothing can be transformed
+    between them, so a set taught at one resolution has to be retaught at the
+    other.
+
+    Worse, the two sizes are close enough to be compared rather than dismissed:
+    slide_compare only refuses outright when an axis differs by more than one.
+    So templates from the old resolution do not sit harmlessly unused, they
+    compete, and a rival within MARGIN vetoes the right answer outright.
+    """
+    from collections import Counter
+
+    if not glyphs or not reader.templates:
+        return []
+    seen = Counter(g.bitmap.shape for g in glyphs).most_common(1)[0][0]
+    stored = Counter(b.shape for samples in reader.templates.values()
+                     for b in samples)
+    if not stored:
+        return []
+    taught = stored.most_common(1)[0][0]
+    if seen == taught:
+        return []
+    return [
+        "",
+        "WARNING: this screen draws %dx%d glyphs but most templates are %dx%d."
+        % (seen + taught),
+        "         That is a different resolution, and it is not a scale, so",
+        "         nothing can be converted. Reteach at this resolution.",
+        "         The two sizes are close enough to be compared rather than",
+        "         ignored, so the old ones actively compete with the new.",
     ]
 
 
