@@ -99,11 +99,36 @@ class TestFramings(unittest.TestCase):
 
 
 class TestMobArithmetic(unittest.TestCase):
-    def test_counts_are_real_division(self):
-        session = grinding(25, 0.1, [(10, 600)])
+    """The values are Classic World's, not v83's. CW rebalanced, so a number
+    that looks familiar from v83 is a sign someone has reverted one."""
+
+    def test_the_values_are_classic_worlds(self):
+        self.assertIn(("snails", 2), facts.MOBS)
+        self.assertIn(("stumps", 10), facts.MOBS)
+        self.assertIn(("slimes", 12), facts.MOBS)
+        self.assertIn(("pigs", 13), facts.MOBS)
+        self.assertIn(("evil eyes", 50), facts.MOBS)
+
+    def test_none_of_the_old_v83_values_crept_back(self):
+        wrong = {"snails": 3, "stumps": 8, "slimes": 10, "pigs": 15}
         for name, each in facts.MOBS:
-            self.assertGreater(each, 0, "%s has no experience value" % name)
-        self.assertIn(("snails", 3), facts.MOBS)
+            self.assertNotEqual(wrong.get(name), each, name)
+
+    def test_every_mob_is_worth_something(self):
+        for name, each in facts.MOBS:
+            self.assertGreater(each, 0, name)
+
+    def test_the_list_is_ordered_by_worth(self):
+        values = [each for _name, each in facts.MOBS]
+        self.assertEqual(values, sorted(values))
+
+    def test_a_count_is_a_real_division(self):
+        session = grinding(25, 0.1, [(10, 600)])
+        text = facts._in_mobs(session, [])
+        name = next(n for n, _e in facts.MOBS if n in text)
+        each = dict(facts.MOBS)[name]
+        self.assertEqual(int(text.split()[2].replace(",", "")),
+                         int(session.gained / each))
 def minutes_long(count):
     """A session of a given length, grinding steadily throughout."""
     return grinding(25, 0.02, [(count, 400)])

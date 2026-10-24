@@ -12,20 +12,30 @@ import random
 from ..import expcurve
 from .format import clock, thousands
 
-# Experience per kill. These are v83 values and they are NOT confirmed against
-# Classic World, whatever an earlier version of this comment claimed. The data
-# is not readable from the client: Data/Mob/Mob.wz is a 103 byte stub and the
-# real table lives in Packs/Mob_00000.ms, a Nexon pack this repo's wz reader
-# cannot open. Classic World is built on v83 so they are probably right, but
-# the only way to settle it is to kill one of each and watch the tracker.
-# Snails and pigs are the ones worth trusting; slimes and evil eyes are the
-# ones most likely to be off.
+# Experience per kill, from Classic World's own mob table rather than from v83.
+# It matters: CW rebalanced. Four of the five values originally here were wrong
+# (snails 3, stumps 8, slimes 10, pigs 15, against the real 2, 10, 12 and 13),
+# and the levels moved too, with Evil Eye dropping from 32 to 27. The client
+# cannot answer this on its own, because Data/Mob/Mob.wz is a 103 byte stub and
+# the real table sits in Packs/Mob_00000.ms, which this repo's wz reader cannot
+# open. Matt's data miners supplied it, 2026-10-24.
+#
+# Every row below was checked against the source's own HP/EXP column, which is
+# a division the table does for you: 45/2 = 22.50 for a snail, 133/10 = 13.30
+# for a stump, 3218/133 = 24.20 for a drake. All eleven divide out exactly.
 MOBS = [
-    ("snails", 3),
-    ("stumps", 8),
-    ("slimes", 10),
-    ("pigs", 15),
+    ("snails", 2),
+    ("stumps", 10),
+    ("slimes", 12),
+    ("pigs", 13),
+    ("orange mushrooms", 15),
+    ("ribbon pigs", 19),
+    ("horny mushrooms", 41),
+    ("wild boars", 46),
     ("evil eyes", 50),
+    ("drakes", 133),
+    ("stone golems", 175),
+    ("Mushmoms", 340),
 ]
 
 
