@@ -12,9 +12,14 @@ import random
 from ..import expcurve
 from .format import clock, thousands
 
-# Experience per kill, read out of the game's own Mob.wz data rather than
-# remembered. These are the v83 values; Classic World is built on v83, so they
-# should hold, but they are worth a sanity check against the game.
+# Experience per kill. These are v83 values and they are NOT confirmed against
+# Classic World, whatever an earlier version of this comment claimed. The data
+# is not readable from the client: Data/Mob/Mob.wz is a 103 byte stub and the
+# real table lives in Packs/Mob_00000.ms, a Nexon pack this repo's wz reader
+# cannot open. Classic World is built on v83 so they are probably right, but
+# the only way to settle it is to kill one of each and watch the tracker.
+# Snails and pigs are the ones worth trusting; slimes and evil eyes are the
+# ones most likely to be off.
 MOBS = [
     ("snails", 3),
     ("stumps", 8),
