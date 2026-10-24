@@ -108,7 +108,11 @@ def teach_unknowns(parent, region, reader):
         ch = ask_one_glyph(parent, glyph.bitmap, reading, index + 1)
         if ch is None:
             continue
-        reader.learn(ch, glyph.bitmap)
+        # correct(), not learn(). Being told what a glyph is should settle it
+        # for that glyph outright, and only an override does that: the models
+        # are consulted before the templates and will happily keep answering
+        # None, or the wrong character, for a shape just taught.
+        reader.correct(ch, glyph.bitmap)
         learned += 1
         reading = reading[:index] + ch + reading[index + 1:]
     return learned

@@ -28,10 +28,17 @@ PERIOD = 0.5
 # tick: the config is tens of kilobytes and a tick is half a second.
 SAVE_EVERY_SECONDS = 20
 
-# How long experience can sit still before the clock stops on its own. Long
-# enough that a slow spawn cycle does not trip it, short enough that wandering
-# off to talk to someone does not quietly wreck the session average.
-IDLE_PAUSE_SECONDS = 60
+# How long experience can sit still before the clock stops on its own, and how
+# much of that stall still counts once it does.
+#
+# These work together. A minute was too short: a party quest stage can run that
+# long with nobody earning anything, and the clock stopping there made a good
+# run look like a bad one. Two minutes clears that, but waiting twice as long
+# to notice a real stop would be twice as wrong, so the pause hands back all
+# but the last few seconds. A false alarm now costs ten seconds instead of two
+# minutes, which makes the longer wait affordable.
+IDLE_PAUSE_SECONDS = 120
+IDLE_GRACE_SECONDS = 10
 
 
 class App:
@@ -54,6 +61,9 @@ class App:
         self._dirty = False
         self._saved_at = time.time()
         self._window = None
+        # Set only by the idle pause. A pause the person asked for stays until
+        # they say otherwise; this one is allowed to undo itself.
+        self._auto_paused = False
 
         self.panel = Panel(self.root, self.session, self)
 
@@ -71,7 +81,14 @@ class App:
     # These are what the panel calls. Names match the buttons.
 
     def toggle(self):
+        # Touching the button is a decision, so the clock stops meaning the
+        # idle pause's and starts meaning theirs.
+        self._auto_paused = False
         return self.session.toggle()
+
+    def cancel_auto_pause(self):
+        """Called when something else takes charge of the clock."""
+        self._auto_paused = False
 
     def _callback_failed(self, kind, value, tb):
         """Surface an error from a button rather than losing it to stderr."""
@@ -133,6 +150,7 @@ class App:
         self.panel.session = self.session
         self.panel.auto_learned = 0
         self.panel.problem = ""
+        self._auto_paused = False
         self.panel.sync_button()
 
     def learn(self):
@@ -257,25 +275,63 @@ class App:
                 self.panel.problem = "read failed: %s" % exc
             self._store_if_due()
             self._pause_if_idle()
+        elif self._auto_paused:
+            # The clock stopped on its own, so it is allowed to start again on
+            # its own. Reading continues while it is stopped; only the counting
+            # of time is suspended.
+            self._resume_if_moving()
         self.panel.refresh()
         self.root.after(int(PERIOD * 1000), self.tick)
 
     def _pause_if_idle(self):
-        """Stop the clock when the experience stops moving.
+        """Stop the clock when the experience stops moving, and refund the wait.
 
         Rates are an average over elapsed time, so standing in town with the
         clock running drags the number down and makes a good spot look bad.
-        Off by choice for party quests, where a minute between bursts of
-        experience is normal rather than a sign of having stopped.
+
+        The stall is only noticed IDLE_PAUSE_SECONDS after it started, and all
+        of that counted as grinding in the meantime. Most of it is handed back,
+        so being wrong about a party quest stage is nearly free while a real
+        stop still ends the session where it actually ended.
         """
         if not self.panel.idle_pause.get():
             return
         idle = self.session.idle_for()
-        if idle is not None and idle >= IDLE_PAUSE_SECONDS:
-            self.session.pause()
-            self.panel.sync_button()
-            self.panel.problem = ("paused: no experience for %d seconds"
-                                  % IDLE_PAUSE_SECONDS)
+        if idle is None or idle < IDLE_PAUSE_SECONDS:
+            return
+        self.session.pause()
+        given = self.session.rewind(idle - IDLE_GRACE_SECONDS)
+        self._auto_paused = True
+        self.panel.sync_button()
+        self.panel.problem = ("paused, no experience for %ds (%ds put back)"
+                              % (IDLE_PAUSE_SECONDS, round(given)))
+
+    def _resume_if_moving(self):
+        """While auto-paused, watch for the experience to move and start again.
+
+        The clock is started BEFORE the reading is counted, so the experience
+        that ended the stall is measured against a running clock rather than
+        landing on a frozen one.
+
+        Any change counts, not only an increase, because levelling up sends the
+        value back down and that is the opposite of being idle. A misread that
+        trips this costs one tick of running time and nothing else: the reading
+        itself still has to survive the usual checks before it is believed.
+        """
+        try:
+            text, _glyphs = self.reader.read(grab(self.region))
+        except Exception as exc:
+            self.panel.problem = "read failed: %s" % exc
+            return
+        reading = parse(text)
+        if not reading or self.session.value is None:
+            return
+        if reading[0] == self.session.value:
+            return
+        self._auto_paused = False
+        self.session.start()
+        self.panel.sync_button()
+        self.panel.problem = ""
 
     def _take_reading(self):
         text, glyphs = self.reader.read(grab(self.region))

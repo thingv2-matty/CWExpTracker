@@ -142,6 +142,7 @@ class Panel:
         Distinct from pause, which is for stepping away mid-grind. Stop means
         finished, so it is the natural moment to put the recap up.
         """
+        self.actions.cancel_auto_pause()
         self.session.pause()
         self.sync_button()
         self.refresh()

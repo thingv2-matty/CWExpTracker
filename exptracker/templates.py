@@ -89,13 +89,30 @@ def same_shape(a, b):
     return slide_compare(a, b) < IDENTICAL
 
 
+def blocks(a, b):
+    """True if filing these under different characters makes both unmatchable.
+
+    MARGIN is the bar: match() refuses to commit when the runner-up is within
+    it, so two samples closer than MARGIN do not merely tie, they veto each
+    other. Neither can ever be read again.
+    """
+    return slide_compare(a, b) < MARGIN
+
+
 def learn(templates, ch, bitmap):
     """Record that this shape is ch, and that it is NOT anything else.
 
-    The second half is the important half. Without it a shape mis-filed once
-    stays filed, ties with every later correct answer, and the margin check
-    reports an ambiguity that no amount of teaching can clear. Four characters
-    were taught a dozen times each against exactly this.
+    The second half is the important half, and it has to be measured with the
+    same ruler match() uses. An earlier version displaced only samples that
+    were IDENTICAL to the new one, which is five times stricter than MARGIN,
+    the distance that actually blocks a match. A rival sitting in between was
+    never displaced and silently vetoed the character forever.
+
+    That was not hypothetical. One sample of a 2 had been filed as a 1, sat
+    0.013 from five real 2s, and made every one of them unreadable. Teaching
+    could not clear it: each lesson added another 2 for the stray 1 to veto.
+    Matt taught it over and over and reported, correctly, that it ALWAYS got
+    hung up on that one digit.
 
     Returns (added, displaced).
     """
@@ -104,7 +121,7 @@ def learn(templates, ch, bitmap):
         if other == ch:
             continue
         keep = [sample for sample in templates[other]
-                if not same_shape(sample, bitmap)]
+                if not blocks(sample, bitmap)]
         displaced += len(templates[other]) - len(keep)
         if keep:
             templates[other] = keep

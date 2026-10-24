@@ -380,6 +380,26 @@ class Session:
         self.pause() if self.running else self.start()
         return self.running
 
+    def rewind(self, seconds):
+        """Take time back off the clock. Returns how much was actually given.
+
+        The idle pause only recognises a stall well after it began, and every
+        second of that counted as grinding while it waited. Handing most of it
+        back means a false positive, standing still on a party quest stage,
+        costs almost nothing.
+
+        Capped at the last point experience moved, because the history is keyed
+        on elapsed time. Winding back past a recorded reading would leave that
+        reading in the future, and both the rolling window and the recap blocks
+        read it.
+        """
+        if seconds <= 0:
+            return 0.0
+        floor = self.history[-1][0] if self.history else 0.0
+        given = min(seconds, max(0.0, self.elapsed - floor))
+        self.banked -= given
+        return given
+
     def forget_reading(self):
         """Drop the baseline without touching the clock or the totals.
 
