@@ -163,6 +163,107 @@ def _steady(session, segments):
     return ("Every block landed within %.0f%% of your average. That is hard to "
             "do." % (share * 100))
 
+# Approximate runtimes in minutes. Films are the theatrical cut; a series is
+# every episode back to back, which is why they only ever come up once.
+WATCHABLE = [
+    ("Shrek", 90),
+    ("Monty Python and the Holy Grail", 91),
+    ("The Princess Bride", 98),
+    ("Groundhog Day", 101),
+    ("Ghostbusters", 105),
+    ("Back to the Future", 116),
+    ("Alien", 117),
+    ("Mad Max: Fury Road", 120),
+    ("Spirited Away", 125),
+    ("Jurassic Park", 127),
+    ("Die Hard", 132),
+    ("The Matrix", 136),
+    ("Forrest Gump", 142),
+    ("Goodfellas", 146),
+    ("The Fellowship of the Ring", 178),
+    ("Titanic", 194),
+    ("The Return of the King", 201),
+    ("every episode of Cowboy Bebop", 10 * 60),
+    ("every episode of Firefly", 10 * 60),
+    ("every episode of Arrested Development", 19 * 60),
+    ("every episode of Avatar: The Last Airbender", 23 * 60),
+    ("every episode of Stranger Things", 38 * 60),
+    ("every episode of Breaking Bad", 49 * 60),
+    ("every episode of Seinfeld", 66 * 60),
+    ("every episode of The Office", 74 * 60),
+]
+
+# Things that take a known amount of time, in minutes, each phrased to follow
+# "how long it takes". Only offered when the session lands near one, so the
+# comparison stays true instead of being scaled to fit.
+LONG_AS = [
+    (43, "sunlight to reach Jupiter"),
+    (75, "a homing pigeon to get home from a hundred kilometres away"),
+    (80, "sunlight to reach Saturn"),
+    (92, "the ISS to go all the way around the Earth"),
+    (121, "a world record holder to run a marathon"),
+    (135, "a garden snail to cross a football pitch"),
+    (150, "a car to get to Toronto and back, if the 401 behaves"),
+    (160, "the Titanic to sink after it hit the iceberg"),
+    (250, "sunlight to reach Neptune"),
+    (275, "a plane to fly from Toronto to Calgary"),
+    (330, "sunlight to reach Pluto"),
+    (420, "a plane to fly from Toronto to London"),
+    (665, "two people to play the longest match in Wimbledon history"),
+    (1200, "a hummingbird to cross the Gulf of Mexico without stopping"),
+]
+
+# How far either side of a listed span still counts as "about as long as".
+NEAR_ENOUGH = (0.8, 1.25)
+
+
+def _times(count):
+    return {1: "once", 2: "twice", 3: "three times"}.get(count, "%d times" % count)
+
+
+def _screen_time(session, segments):
+    minutes = session.elapsed / 60.0
+    fits = [(name, run) for name, run in WATCHABLE if minutes >= run]
+    if not fits:
+        return None
+    name, run = random.choice(fits)
+    return "That is long enough to watch %s %s." % (name, _times(int(minutes / run)))
+
+
+def _as_long_as(session, segments):
+    minutes = session.elapsed / 60.0
+    low, high = NEAR_ENOUGH
+    close = [what for span, what in LONG_AS if span * low <= minutes <= span * high]
+    if not close:
+        return None
+    return "That is about how long it takes %s." % random.choice(close)
+
+
+# A pointing hand, sunglasses, pointing hand. Tk 8.6 draws text through GDI, so
+# these arrive as monochrome glyphs from a fallback font rather than as colour
+# emoji. Consolas has none of them.
+NICE = "👉😎👉"
+
+
+def _nice_gained(session, segments):
+    if 69.0 <= session.percent_gained < 70.0:
+        return "You gained 69%%, nice %s" % NICE
+    return None
+
+
+def _nice_standing(session, segments):
+    standing = session.percent
+    if standing is None or not 69.0 <= standing < 70.0:
+        return None
+    return "You finished off at 69%%, nice %s" % NICE
+
+
+# Checked before anything else and shown on its own when one applies. An easter
+# egg that only turns up one time in ten it is earned is not worth having.
+PRIORITY = [
+    _nice_gained,
+    _nice_standing,
+]
 
 ALL = [
     _levelled,
@@ -171,6 +272,8 @@ ALL = [
     _in_mobs,
     _full_levels,
     _per_second,
+    _screen_time,
+    _as_long_as,
     _best_against_worst,
     _your_ceiling,
     _time_to_next,
@@ -178,14 +281,20 @@ ALL = [
 ]
 
 
-def pick(session, segments):
-    """One applicable fact, chosen at random, or None if nothing applies."""
-    usable = []
-    for fact in ALL:
+def _usable(facts, session, segments):
+    found = []
+    for fact in facts:
         try:
             text = fact(session, segments)
         except (TypeError, ValueError, ZeroDivisionError):
             continue
         if text:
-            usable.append(text)
+            found.append(text)
+    return found
+
+
+def pick(session, segments):
+    """One applicable fact, chosen at random, or None if nothing applies."""
+    usable = (_usable(PRIORITY, session, segments)
+              or _usable(ALL, session, segments))
     return random.choice(usable) if usable else None
