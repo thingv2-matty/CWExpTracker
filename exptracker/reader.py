@@ -21,7 +21,7 @@ tested without reaching into the module.
 
 import numpy as np
 
-from . import templates as templates_module
+from . import paths, templates as templates_module
 from .models import CharacterModels
 from .segment import drop_badge, segment
 
@@ -41,8 +41,19 @@ class Reader:
         self.overrides = dict(overrides or {})
 
     @classmethod
-    def load(cls, config, models_path):
-        return cls(templates=templates_module.from_json(config.templates),
+    def load(cls, config, models_path, shipped_path=None):
+        """What this machine was taught, over what the repo ships.
+
+        This machine's own shapes come first and are never displaced by a
+        shipped one, because they were taught on the screen actually in front
+        of the person. The shipped set fills in the sizes they have never run
+        at, which is what lets a fresh install read at a resolution nobody
+        here has ever used.
+        """
+        mine = templates_module.from_json(config.templates)
+        shipped = templates_module.load_shipped(
+            shipped_path or paths.TEMPLATES)
+        return cls(templates=templates_module.merge(mine, shipped),
                    models=CharacterModels.load(models_path),
                    overrides=config.overrides)
 

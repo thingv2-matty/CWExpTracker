@@ -125,7 +125,9 @@ class TestMobArithmetic(unittest.TestCase):
     def test_a_count_is_a_real_division(self):
         session = grinding(25, 0.1, [(10, 600)])
         text = facts._in_mobs(session, [])
-        name = next(n for n, _e in facts.MOBS if n in text)
+        # Longest match wins: "pigs" is inside "ribbon pigs", and taking the
+        # first match looked up the wrong value one draw in twelve.
+        name = max((n for n, _e in facts.MOBS if n in text), key=len)
         each = dict(facts.MOBS)[name]
         self.assertEqual(int(text.split()[2].replace(",", "")),
                          int(session.gained / each))

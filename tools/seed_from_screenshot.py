@@ -180,7 +180,10 @@ def main(argv=None):
     for glyph, ch in zip(glyphs, truth):
         # A glyph a single pixel wide is where the threshold gave up, not a
         # character. Teaching one files a sliver under a real name, and a
-        # sliver sits close to everything.
+        # sliver sits close to everything: at the smaller sizes the opening
+        # bracket segments as a bare vertical line, which then fits inside the
+        # closing bracket exactly and makes both unreadable. Better to leave
+        # the character unknown than to poison its neighbour.
         if glyph.bitmap.shape[1] < 2 and ch != ".":
             skipped += 1
             continue

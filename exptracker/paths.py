@@ -14,6 +14,10 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 EXP_TABLE = DATA / "exp-table.tsv"
 MODELS = DATA / "models.json"
+# Shapes taught at several screen resolutions, shipped with the repo so a
+# fresh install can read on a screen it has never seen. Read only: anything
+# learned on this machine goes to CONFIG.
+TEMPLATES = DATA / "templates.json"
 CAPTURES = DATA / "captures"
 LABELS = DATA / "labels.json"
 

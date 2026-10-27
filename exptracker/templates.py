@@ -10,6 +10,8 @@ legitimately threshold to more than one shape and keeping both is cheaper than
 deciding which is canonical.
 """
 
+import json
+
 import numpy as np
 
 # A template matches only if it is very nearly identical.
@@ -83,10 +85,21 @@ def slide_compare(template, bitmap):
 
 
 def same_shape(a, b):
-    """Close enough that filing both under different characters guarantees a tie."""
-    if a.shape == b.shape and np.array_equal(a, b):
-        return True
-    return slide_compare(a, b) < IDENTICAL
+    """Close enough that filing both under different characters guarantees a tie.
+
+    Asked both ways round, because slide_compare is not symmetric: it divides
+    the disagreement by the TEMPLATE's size, so a small shape swept across a
+    larger one scores well while the reverse does not. A three by two comma
+    and a three by three one came out 0.1111 apart one way and identical the
+    other, and the one way round that got asked silently threw the small one
+    away. It was then unreadable, because match() will not look outside its
+    own height for a replacement.
+    """
+    if a.shape == b.shape:
+        if np.array_equal(a, b):
+            return True
+        return slide_compare(a, b) < IDENTICAL
+    return max(slide_compare(a, b), slide_compare(b, a)) < IDENTICAL
 
 
 def blocks(a, b):
@@ -137,7 +150,14 @@ def learn(templates, ch, bitmap):
             del templates[other]
 
     samples = templates.setdefault(ch, [])
-    if any(same_shape(sample, bitmap) for sample in samples):
+    # Only a sample of the same height counts as already having this one.
+    # match() will not look outside that height, so a shape dropped here as a
+    # duplicate of a taller one is simply lost: the comma renders two pixels
+    # tall at 1280x720 and three at 1920x1080, and treating the short one as
+    # the tall one already known left the small screen unable to read a comma
+    # at all.
+    if any(sample.shape[0] == bitmap.shape[0] and same_shape(sample, bitmap)
+           for sample in samples):
         return False, displaced
     samples.append(bitmap)
     return True, displaced
@@ -198,6 +218,44 @@ def to_json(templates):
                   "bits": "".join("1" if v else "0" for v in b.flatten())}
                  for b in samples]
             for ch, samples in templates.items()}
+
+
+def load_shipped(path):
+    """The shapes that come with the repo, or nothing if the file is missing.
+
+    These exist so a fresh install is not blind on a screen nobody here has
+    run it on. They are a starting point, not the truth: anything this machine
+    learns is written to the config and takes its place alongside them.
+    """
+    if not path.exists():
+        return {}
+    try:
+        blob = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return {}
+    return from_json(blob.get("templates") or {})
+
+
+def merge(base, extra):
+    """Add anything from extra that base does not already have."""
+    out = {ch: list(samples) for ch, samples in base.items()}
+    for ch, samples in extra.items():
+        kept = list(out.get(ch, []))
+        for sample in samples:
+            if any(seen.shape[0] == sample.shape[0] and same_shape(sample, seen)
+                   for seen in kept):
+                continue
+            # Never let a shipped shape veto one this machine was taught.
+            if any(blocks(sample, seen)
+                   for other, theirs in base.items() if other != ch
+                   for seen in theirs):
+                continue
+            kept.append(sample)
+        # Only once something survived, so a character whose every shipped
+        # shape was rejected does not linger as an empty entry.
+        if kept:
+            out[ch] = kept
+    return out
 
 
 def from_json(blob):

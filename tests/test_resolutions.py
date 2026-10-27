@@ -19,6 +19,11 @@ import numpy as np
 from exptracker import templates as T
 
 
+def shape(rows):
+    """A glyph drawn by hand, '#' for ink."""
+    return np.array([[c == "#" for c in row] for row in rows], dtype=bool)
+
+
 def digit(height, width, seed):
     """A repeatable pseudo-glyph of a given size."""
     rng = np.random.default_rng(seed)
@@ -109,6 +114,70 @@ class TestFourResolutionsCoexist(unittest.TestCase):
         self.assertEqual({k: len(v) for k, v in self.templates.items()}, before)
         for (height, ch), shape in self.shapes.items():
             self.assertEqual(T.match(shape, self.templates), ch)
+
+
+class TestSameShapeIsSymmetric(unittest.TestCase):
+    """slide_compare divides by the TEMPLATE's size, so it is not symmetric.
+
+    A small shape swept across a larger one can sit inside it perfectly and
+    score zero, while the larger one over the smaller does not. Asked only one
+    way round, a three by two comma looked identical to a three by three one
+    and was dropped as a duplicate. It was then unreadable, because match()
+    will not look outside its own height to find a replacement.
+    """
+
+    SMALL = shape([".#", "##", "#."])
+    LARGE = shape([".##", "##.", "#.."])
+
+    def test_the_comparison_really_is_lopsided(self):
+        one_way = T.slide_compare(self.SMALL, self.LARGE)
+        other = T.slide_compare(self.LARGE, self.SMALL)
+        self.assertNotAlmostEqual(one_way, other, places=3)
+
+    def test_same_shape_agrees_both_ways(self):
+        self.assertEqual(T.same_shape(self.SMALL, self.LARGE),
+                         T.same_shape(self.LARGE, self.SMALL))
+
+    def test_a_narrower_glyph_is_not_a_duplicate(self):
+        templates = {",": [self.LARGE]}
+        added, _displaced = T.learn(templates, ",", self.SMALL)
+        self.assertTrue(added, "the narrow one was swallowed by the wide one")
+        self.assertEqual(len(templates[","]), 2)
+
+    def test_merge_keeps_both(self):
+        merged = T.merge({}, {",": [self.LARGE, self.SMALL]})
+        self.assertEqual(len(merged[","]), 2)
+
+    def test_identical_shapes_are_still_duplicates(self):
+        templates = {",": [self.LARGE]}
+        added, _displaced = T.learn(templates, ",", self.LARGE.copy())
+        self.assertFalse(added)
+
+
+class TestShippedTemplates(unittest.TestCase):
+    """The repo carries shapes so a fresh install is not blind."""
+
+    def test_what_this_machine_knows_is_never_displaced_by_a_shipped_shape(self):
+        """A shipped shape close enough to veto a local one is dropped, not
+        allowed in to make the local one unreadable."""
+        mine = shape(["######", "#....#", "#....#", "#....#", "#....#",
+                      "######"])
+        nearly = mine.copy()
+        nearly[2, 2] = True            # one pixel in thirty six: inside MARGIN
+        self.assertTrue(T.blocks(nearly, mine), "these are not close enough")
+        merged = T.merge({"8": [mine]}, {"9": [nearly]})
+        self.assertIn(mine.tolist(), [s.tolist() for s in merged["8"]])
+        self.assertNotIn("9", merged)
+
+    def test_a_shipped_shape_fills_a_size_never_seen_here(self):
+        mine = shape(["####", "#..#", "####"])
+        other_size = shape(["###", "#.#", "#.#", "###"])
+        merged = T.merge({"0": [mine]}, {"0": [other_size]})
+        self.assertEqual(len(merged["0"]), 2)
+
+    def test_missing_file_is_not_an_error(self):
+        from pathlib import Path
+        self.assertEqual(T.load_shipped(Path("no-such-file.json")), {})
 
 
 if __name__ == "__main__":
