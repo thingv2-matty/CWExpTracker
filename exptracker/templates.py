@@ -95,7 +95,15 @@ def blocks(a, b):
     MARGIN is the bar: match() refuses to commit when the runner-up is within
     it, so two samples closer than MARGIN do not merely tie, they veto each
     other. Neither can ever be read again.
+
+    Samples of different heights never block, because match() never puts them
+    up against each other. That is what keeps one screen resolution's lesson
+    from deleting another's: at 1024x768 the digits are seven pixels tall and
+    at 1920x1080 they are ten, and teaching the small ones must not quietly
+    throw away the large.
     """
+    if a.shape[0] != b.shape[0]:
+        return False
     return slide_compare(a, b) < MARGIN
 
 
@@ -136,10 +144,28 @@ def learn(templates, ch, bitmap):
 
 
 def match(bitmap, templates):
-    """The character this bitmap most resembles, or None if nothing is close."""
+    """The character this bitmap most resembles, or None if nothing is close.
+
+    Only samples of the same height are considered. This is the rule the
+    character models already use, for the reason given there: a glyph put up
+    against characters that do not render at its height is being asked the
+    wrong question.
+
+    It matters twice over here. Within one screen it stops a comma being
+    weighed against a 4. Across screens it is what makes a second resolution
+    safe to teach at all: slide_compare only refuses outright when an axis
+    differs by more than one, so without this a ten pixel digit from one
+    resolution and an eleven pixel digit from another compete, and whichever
+    is closer vetoes the other outright.
+
+    Width is deliberately NOT gated, matching the models again: a digit
+    rendering one pixel thinner than usual should still find its own kind.
+    """
     scores = {}
     for ch, samples in templates.items():
         for template in samples:
+            if template.shape[0] != bitmap.shape[0]:
+                continue
             score = slide_compare(template, bitmap)
             if ch not in scores or score < scores[ch]:
                 scores[ch] = score
@@ -156,6 +182,15 @@ def match(bitmap, templates):
     if len(ranked) > 1 and (ranked[1][1] - best_score) < MARGIN:
         return None
     return best
+
+
+def heights(templates):
+    """Every glyph height present, commonest first. One per resolution."""
+    from collections import Counter
+
+    tally = Counter(b.shape[0] for samples in templates.values()
+                    for b in samples)
+    return [h for h, _n in tally.most_common()]
 
 
 def to_json(templates):

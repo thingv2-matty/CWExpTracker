@@ -56,14 +56,38 @@ The clock stops on its own after two minutes with no experience, and starts
 again on its own the moment you earn some. It gives you back almost all of the
 time it waited, so getting stuck on a party quest stage costs you nothing.
 
+Setup also leaves three other shortcuts in the folder, none of which you
+normally need:
+
+| | |
+|---|---|
+| **Teach EXP Tracker** | tell it what the readout says, for a new resolution |
+| **Debug EXP Tracker** | dump one capture and every score, then stop |
+| **Caffeine** | stop the machine sleeping, without changing power settings |
+
 ### If it reads a number wrong
 
 Open **···** and use **correct the reading**. Type what it actually says and it
 will remember that shape for good.
 
-Most of the time this never comes up. It matters if you play at a screen
-resolution it has not seen, because the game redraws the text at a different
-size and it has to be taught the new one.
+### If you play at a different resolution
+
+The game redraws the readout at a different size per resolution, so it has to
+learn each one. It already knows the common ones:
+
+| Resolution | |
+|---|---|
+| 1024x768, 1280x720, 1366x768 | all identical, taught |
+| 1920x1080 windowed | taught |
+| 1920x1080 fullscreen | taught |
+
+A few digits are still missing at those sizes. They get picked up on their own
+as you play, because the tracker works unknown characters out from the
+arithmetic and keeps the shape once it has. If you want to settle it in one
+go, double-click **Teach EXP Tracker** and type what the readout says.
+
+Sizes never interfere with each other, so teaching one resolution can never
+damage another.
 
 ---
 
